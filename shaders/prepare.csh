@@ -1,28 +1,17 @@
 #version 460
 
-// 33554432 / 64 = 524288
-const ivec3 workGroups = ivec3(524288, 1, 1);
+const ivec3 workGroups = ivec3(131072, 1, 1);
 
-#define AS_VERTEX
 #include "/lib/storage.glsl"
 #include "/lib/hploc.glsl"
 
-// x = ---- 9--8 --7- -6-- 5--4 --3- -2-- 1--0
-// y = ---9 --8- -7-- 6--5 --4- -3-- 2--1 --0-
-// z = --9- -8-- 7--6 --5- -4-- 3--2 --1- -0--
-// r = --99 9888 7776 6655 5444 3332 2211 1000
-//
-// bits from the three axis get interleaved
-
 uint encodeMorton3D(vec3 normalizedPos) {
    uvec3 i = uvec3(clamp(normalizedPos, 0.0, 1.0) * 1023.0);
-
    i &= 0x000003ffu;
    i = (i ^ (i << 16)) & 0xff0000ffu;
    i = (i ^ (i << 8)) & 0x0300f00fu;
    i = (i ^ (i << 4)) & 0x030c30c3u;
    i = (i ^ (i << 2)) & 0x09249249u;
-
    return (i.z << 2) | (i.y << 1) | i.x;
 }
 
@@ -30,42 +19,52 @@ layout(local_size_x = 64) in;
 
 void main() {
    uint gID = gl_GlobalInvocationID.x;
-   if (gID >= count) return;
+   uint numQuads = min(count >> 2u, MAX_QUAD_COUNT);
 
-   vec3 vPos = vertices[gID].position;
-   vec3 quadMin = subgroupClusteredMin(vPos, 4);
-   vec3 quadMax = subgroupClusteredMax(vPos, 4);
-   vec3 quadSum = subgroupClusteredAdd(vPos, 4);
+   if (gID < numQuads) {
+      Quad q = quads[gID];
 
-   // every 4th thread is chosen as "leader" for the quad leaf write
-   if ((gl_SubgroupInvocationID & 3) == 0 && gID < count) {
-      vec3 quadCenter = quadSum * 0.25;
+      vec3 p1 = q.v1.position;
+      vec3 p2 = q.v2.position;
+      vec3 p3 = q.v3.position;
+      vec3 p4 = q.v4.position;
+
+      vec3 quadMin = min(min(p1, p2), min(p3, p4));
+      vec3 quadMax = max(max(p1, p2), max(p3, p4));
+      vec3 quadCenter = (p1 + p2 + p3 + p4) * 0.25;
 
       vec3 sceneMax = getSceneMax();
       vec3 sceneMin = getSceneMin();
-      vec3 range = sceneMax - sceneMin;
+      vec3 range = max(sceneMax - sceneMin, vec3(1e-9));
 
       vec3 normCentroid = (quadCenter - sceneMin) / range;
-
       uint morton = encodeMorton3D(normCentroid);
 
-      uint primitiveID = gID >> 2;
+      aabbs[gID] = AABB(quadMin, 0.0, quadMax, 0.0);
+      mortonCodes[gID] = morton;
+      clusterIndices[gID] = makeClusterID(gID, 0u);
+      parentIDs[gID] = INVALID_ID;
+   }
 
-      aabs[primitiveID].minBounds = quadMin;
-      aabs[primitiveID].maxBounds = quadMax;
-      codes[primitiveID] = morton;
-      indices[primitiveID] = primitiveID;
-      parentIndices[primitiveID] = INVALID_ID;
+   if (gID == 0u) {
+      uint N = count >> 2u;
+      N = min(N, MAX_QUAD_COUNT);
 
-      if (threadID == 0) {
-         // Allocate the wide root node
-         uint64_t pair = /*root bvh2 cluster ID*/ (uint64_t(GEOM_ID_BVH2 << 24) << 32ull) | (0ull);
-         store < uint64_t > (params.indexPairs, threadID, pair);
-         store < int > (params.AC, 3, 1); // global counter of allocated BVH8 nodes
-      }
-      else {
-         uint64_t pair = UINT64_MAX; // invalid pair
-         store < uint64_t > (params.indexPairs, threadID, pair);
-      }
+      uint sortWorkgroups = (N + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
+
+      control.data[CTRL_SORT_DISPATCH_X] = sortWorkgroups;
+      control.data[CTRL_SORT_DISPATCH_Y] = 1u;
+      control.data[CTRL_SORT_DISPATCH_Z] = 1u;
+
+      control.data[CTRL_SORT_SCATTER_X] = sortWorkgroups;
+      control.data[CTRL_SORT_SCATTER_Y] = 1u;
+      control.data[CTRL_SORT_SCATTER_Z] = 1u;
+
+      uint hplocWorkgroups = (N + WAVE_SIZE - 1u) / WAVE_SIZE;
+      control.data[CTRL_HPLOC_DISPATCH_X] = hplocWorkgroups;
+      control.data[CTRL_HPLOC_DISPATCH_Y] = 1u;
+      control.data[CTRL_HPLOC_DISPATCH_Z] = 1u;
+
+      control.data[CTRL_SORT_TOTAL] = N;
    }
 }

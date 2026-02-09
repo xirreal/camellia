@@ -5,19 +5,13 @@ layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 layout(rgba8) uniform writeonly image2D colorimg0;
 
 uniform sampler2D colortex0;
+uniform sampler2D colortex1;
 uniform float viewWidth;
 uniform float viewHeight;
 
-#define AS_BVH2
 #include "/lib/storage.glsl"
+#include "/lib/hploc.glsl"
 #include "/lib/text-rendering.glsl"
-
-// HPLOC atomic counters - reusing global histogram buffer (binding 7)
-layout(std430, binding = 7) readonly buffer HPLOCCounters {
-   uint hplocCounters[];
-};
-
-// BVH2 nodes are accessed via bvh2Nodes[] from storage.glsl (binding 2, AS_BVH2 mode)
 
 vec3 gradient(float t) {
    return mix(vec3(0.4, 1.0, 0.4), vec3(0.9, 0.2, 0.25), t);
@@ -28,7 +22,20 @@ void main() {
 
    if (coord.x >= int(viewWidth) || coord.y >= int(viewHeight)) return;
 
-   vec3 color = texelFetch(colortex0, coord, 0).rgb;
+   int halfWidth = int(viewWidth) / 2;
+   vec3 color;
+
+   if (coord.x < halfWidth) {
+      color = texelFetch(colortex0, coord, 0).rgb;
+   } else {
+      vec4 rtData = texelFetch(colortex1, coord, 0);
+      if (rtData.a > 0.0) {
+         color = rtData.rgb;
+      } else {
+         vec2 uv = vec2(coord) / vec2(viewWidth, viewHeight);
+         color = vec3(uv.x * 0.05, uv.y * 0.05, 0.08);
+      }
+   }
 
    beginText(ivec2(coord * 0.25), ivec2(2, int(viewHeight * 0.25) - 1));
    text.bgCol = vec4(0.0, 0.0, 0.0, 0.7);
@@ -73,8 +80,7 @@ void main() {
    printString((_clprn));
    printLine();
 
-   // Validate sort: check if sorted leaves (binding 10) are sorted by morton code
-   // We sample a few pairs to check ordering (can't check all in a fragment shader)
+   // Sort validation
    printLine();
    text.fgCol = vec4(1.0);
    printString((_S, _o, _r, _t, _e, _d, _colon));
@@ -82,16 +88,39 @@ void main() {
    uint numLeaves = count >> 2u;
    bool isSorted = true;
 
-   // if (numLeaves > 1u) {
-   //    for (uint i = 0u; i + 1u < numLeaves; i += 1) {
-   //       uint codeA = leavesSorted[i].mortonCode;
-   //       uint codeB = leavesSorted[i + 1u].mortonCode;
-   //       if (codeA > codeB) {
-   //          isSorted = false;
-   //          break;
-   //       }
-   //    }
-   // }
+   if (numLeaves > 1u) {
+      #ifdef FAST_CHECK
+      for (uint i = 0u; i < numLeaves - 1u; i++) {
+         uint codeA = mortonCodes[i];
+         uint codeB = mortonCodes[i + 1u];
+         if (codeA > codeB) {
+            isSorted = false;
+            break;
+         }
+      }
+      #else
+      uint checkCount = min(numLeaves - 1u, 100u);
+      for (uint i = 0u; i < checkCount; i++) {
+         uint codeA = mortonCodes[i];
+         uint codeB = mortonCodes[i + 1u];
+         if (codeA > codeB) {
+            isSorted = false;
+            break;
+         }
+      }
+      if (isSorted && numLeaves > 200u) {
+         uint mid = numLeaves / 2u;
+         for (uint i = mid; i < mid + 100u && i + 1u < numLeaves; i++) {
+            uint codeA = mortonCodes[i];
+            uint codeB = mortonCodes[i + 1u];
+            if (codeA > codeB) {
+               isSorted = false;
+               break;
+            }
+         }
+      }
+      #endif
+   }
 
    if (isSorted) {
       text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
@@ -102,26 +131,60 @@ void main() {
    }
    printLine();
 
-   // Print 10 morton codes from the middle of the sorted leaves array
+   // BVH2 node count
+   printLine();
+   text.fgCol = vec4(1.0);
+   printString((_B, _V, _H, _2, _colon));
+   text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
+   printUnsignedIntWithSeparators(control.data[CTRL_BVH2_NODE_COUNT]);
+   text.fgCol = vec4(1.0);
+   printString((_slash));
+   if (numLeaves > 0u) {
+      printUnsignedIntWithSeparators(numLeaves - 1u);
+   } else {
+      printUnsignedInt(0u);
+   }
+   printLine();
+
+   // Morton codes sample
    printLine();
    text.fgCol = vec4(1.0);
    printString((_M, _o, _r, _t, _o, _n, _space, _C, _o, _d, _e, _s, _colon));
    printLine();
 
-   // uint startIndex = (numLeaves > 10u) ? (numLeaves / 2u - 5u) : 0u;
-   // for (uint i = 0u; i < 10u && (startIndex + i) < numLeaves; i++) {
-   //    uint index = startIndex + i;
-   //    uint mortonCode = leavesSorted[index].mortonCode;
-   //    text.fgCol = vec4(1.0);
-   //    printUnsignedInt(index);
-   //    printString((_colon, _space));
-   //    text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
-   //    printUnsignedIntWithSeparators(mortonCode);
-   //    printLine();
-   // }
-   // printLine();
+   uint startIndex = (numLeaves > 10u) ? (numLeaves / 2u - 5u) : 0u;
+   for (uint i = 0u; i < 10u && (startIndex + i) < numLeaves; i++) {
+      uint index = startIndex + i;
+      uint mortonCode = mortonCodes[index];
+      text.fgCol = vec4(1.0);
+      printUnsignedInt(index);
+      printString((_colon, _space));
+      text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
+      printUnsignedIntWithSeparators(mortonCode);
+      printLine();
+   }
+   printLine();
 
    endText(color);
+
+   beginText(ivec2(coord * 0.25), ivec2(2, 10));
+   text.bgCol = vec4(0.0, 0.0, 0.0, 0.7);
+
+   printString((_G, _b, _f, _u, _f, _f, _e, _r));
+
+   endText(color);
+
+   beginText(ivec2(coord * 0.25), ivec2(viewWidth * 0.25 * 0.5 + 3, 10));
+   text.bgCol = vec4(0.0, 0.0, 0.0, 0.7);
+
+   printString((_R, _T));
+
+   endText(color);
+
+   // Divider line
+   if (abs(coord.x - halfWidth) <= 1) {
+      color = vec3(1.0);
+   }
 
    imageStore(colorimg0, coord, vec4(color, 1.0));
 }

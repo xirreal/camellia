@@ -8,24 +8,65 @@ uniform float far;
 #extension GL_KHR_shader_subgroup_clustered : require
 #extension GL_KHR_shader_subgroup_vote : enable
 #extension GL_KHR_shader_subgroup_shuffle : enable
+#extension GL_KHR_shader_subgroup_shuffle_relative : enable
 
 struct Vertex {
    vec3 position;
    uint encodedNormal;
    vec2 uv;
    float emission;
-}; // 28 bytes
+   float _pad;
+}; // 32 bytes (explicit padding for std430 array stride)
 
-const uint MAX_VERTEX_COUNT = 33554432;
-const uint MAX_QUAD_COUNT = MAX_VERTEX_COUNT / 4;
+const uint MAX_VERTEX_COUNT = 33554432u;
+const uint MAX_QUAD_COUNT = MAX_VERTEX_COUNT / 4u;
 
 const float MAX_FLOAT = float(0xFFFFFFFFu);
 
-// quad/vertex buffer:
-// sizeof(Vertex) * MAX_VERTEX_COUNT + 4 = 939524096 bytes = 940MB
-//
-// for the quad leaves we need 1/4 of the amount of the vertex buffer, however entries are 32 bytes instead of 24 bytes:
-// sizeof(QuadLeaf) * (MAX_VERTEX_COUNT / 4) = 26,843,536 bytes = 26MB
+const uint GEOM_ID_BVH2 = 255u;
+const uint INVALID_ID = 0xFFFFFFFFu;
+const uint WAVE_SIZE = 32u;
+const uint SEARCH_RADIUS_SHIFT = 3u;
+const uint SEARCH_RADIUS = 1u << SEARCH_RADIUS_SHIFT;
+
+// Control buffer offsets (in uint indices, multiply by 4 for bytes)
+const uint CTRL_BOUNDS_MIN_X = 0u;
+const uint CTRL_BOUNDS_MIN_Y = 1u;
+const uint CTRL_BOUNDS_MIN_Z = 2u;
+const uint CTRL_BOUNDS_MAX_X = 3u;
+const uint CTRL_BOUNDS_MAX_Y = 4u;
+const uint CTRL_BOUNDS_MAX_Z = 5u;
+const uint CTRL_BVH2_NODE_COUNT = 6u;
+const uint CTRL_SORT_TOTAL = 7u;
+const uint CTRL_PREPARE_DISPATCH_X = 12u;
+const uint CTRL_PREPARE_DISPATCH_Y = 13u;
+const uint CTRL_PREPARE_DISPATCH_Z = 14u;
+const uint CTRL_SORT_DISPATCH_X = 15u;
+const uint CTRL_SORT_DISPATCH_Y = 16u;
+const uint CTRL_SORT_DISPATCH_Z = 17u;
+const uint CTRL_SORT_SCATTER_X = 18u;
+const uint CTRL_SORT_SCATTER_Y = 19u;
+const uint CTRL_SORT_SCATTER_Z = 20u;
+const uint CTRL_HPLOC_DISPATCH_X = 21u;
+const uint CTRL_HPLOC_DISPATCH_Y = 22u;
+const uint CTRL_HPLOC_DISPATCH_Z = 23u;
+
+// Sort constants
+const uint RADIX_BITS = 4u;
+const uint RADIX = 1u << RADIX_BITS; // 16
+const uint SORT_WG_SIZE = 256u;
+// Max number of sort workgroups
+const uint SORT_MAX_WORKGROUPS = (MAX_QUAD_COUNT + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
+
+// Sort scratch buffer layout (in uint offsets within buffer 7)
+// Ping-pong keys: MAX_QUAD_COUNT uints
+const uint SORT_SCRATCH_KEYS = 0u;
+// Ping-pong values: MAX_QUAD_COUNT uints
+const uint SORT_SCRATCH_VALS = MAX_QUAD_COUNT;
+// Per-workgroup pass histogram: RADIX * SORT_MAX_WORKGROUPS uints
+const uint SORT_SCRATCH_PASS_HIST = MAX_QUAD_COUNT * 2u;
+// Per-digit totals: RADIX uints (written by scan, read by downsweep)
+const uint SORT_SCRATCH_DIGIT_TOTALS = SORT_SCRATCH_PASS_HIST + RADIX * SORT_MAX_WORKGROUPS;
 
 #ifdef AS_VERTEX
 
@@ -35,25 +76,18 @@ layout(std430, binding = 0) buffer VertexBuffer {
 };
 
 uint getVertexWriteIndex() {
-   // eval true in every thread in warp -> mask of threads in warp
    uvec4 activeMask = subgroupBallot(true);
-   // count bits = n of active threads
    uint activeThreads = subgroupBallotBitCount(activeMask);
 
-   uint vertexId = 0;
+   uint vertexId = 0u;
 
-   // guaranteed to run only once per warp
    if (subgroupElect()) {
-      // do the atomic, this returns the prev value
       vertexId = atomicAdd(count, activeThreads);
    }
 
-   // broadcast previous value to other threads
    vertexId = subgroupBroadcastFirst(vertexId);
-   // adds the n of bits lower than gl_SubgroupInvocationID
    vertexId += subgroupBallotExclusiveBitCount(activeMask);
 
-   // every thread gets vertexIdPrev + thread id in warp
    return vertexId;
 }
 
@@ -64,7 +98,7 @@ struct Quad {
    Vertex v2;
    Vertex v3;
    Vertex v4;
-}; // sizeof(Vertex) * 4 = 28 * 4 = 112 bytes
+}; // 128 bytes
 
 layout(std430, binding = 0) readonly buffer QuadBuffer {
    uint count;
@@ -73,10 +107,9 @@ layout(std430, binding = 0) readonly buffer QuadBuffer {
 
 #endif
 
-layout(std430, binding = 1) buffer SceneBounds {
-   uint minX, minY, minZ;
-   uint maxX, maxY, maxZ;
-} bounds;
+layout(std430, binding = 1) buffer ControlBuffer {
+   uint data[];
+} control;
 
 uvec3 encodeBound(vec3 pos) {
    vec3 normalized = clamp((pos + far) / (2.0 * far), 0.0, 1.0);
@@ -89,11 +122,19 @@ float decodeBound(uint encodedVal) {
 }
 
 vec3 getSceneMax() {
-   return vec3(decodeBound(bounds.maxX), decodeBound(bounds.maxY), decodeBound(bounds.maxZ));
+   return vec3(
+      decodeBound(control.data[CTRL_BOUNDS_MAX_X]),
+      decodeBound(control.data[CTRL_BOUNDS_MAX_Y]),
+      decodeBound(control.data[CTRL_BOUNDS_MAX_Z])
+   );
 }
 
 vec3 getSceneMin() {
-   return vec3(decodeBound(bounds.minX), decodeBound(bounds.minY), decodeBound(bounds.minZ));
+   return vec3(
+      decodeBound(control.data[CTRL_BOUNDS_MIN_X]),
+      decodeBound(control.data[CTRL_BOUNDS_MIN_Y]),
+      decodeBound(control.data[CTRL_BOUNDS_MIN_Z])
+   );
 }
 
 void updateSceneBounds(vec3 pos) {
@@ -104,13 +145,13 @@ void updateSceneBounds(vec3 pos) {
       uvec3 uMin = encodeBound(sMin);
       uvec3 uMax = encodeBound(sMax);
 
-      atomicMin(bounds.minX, uMin.x);
-      atomicMin(bounds.minY, uMin.y);
-      atomicMin(bounds.minZ, uMin.z);
+      atomicMin(control.data[CTRL_BOUNDS_MIN_X], uMin.x);
+      atomicMin(control.data[CTRL_BOUNDS_MIN_Y], uMin.y);
+      atomicMin(control.data[CTRL_BOUNDS_MIN_Z], uMin.z);
 
-      atomicMax(bounds.maxX, uMax.x);
-      atomicMax(bounds.maxY, uMax.y);
-      atomicMax(bounds.maxZ, uMax.z);
+      atomicMax(control.data[CTRL_BOUNDS_MAX_X], uMax.x);
+      atomicMax(control.data[CTRL_BOUNDS_MAX_Y], uMax.y);
+      atomicMax(control.data[CTRL_BOUNDS_MAX_Z], uMax.z);
    }
 }
 

@@ -2,96 +2,118 @@
 #define HPLOC_INCLUDE_GUARD
 
 /*
-
-https://gpuopen.com/download/HPLOC.pdf
-
-H-PLOC
-Hierarchical Parallel Locally-Ordered Clustering for
-Bounding Volume Hierarchy Construction
-
-GLSL port of the Slang implementation by natevm (https://gist.github.com/natevm/6618402427ad6466bf555d67602adfa8)
-
+   H-PLOC: Hierarchical Parallel Locally-Ordered Clustering
+   for Bounding Volume Hierarchy Construction
+   
+   https://gpuopen.com/download/HPLOC.pdf
+   GLSL port based on Slang implementation by natevm
+   https://gist.github.com/natevm/6618402427ad6466bf555d67602adfa8
 */
-
-const uint INVALID_ID = 0xFFFFFFFFu;
-
-struct BVH2Node {
-   vec3 minBounds;
-   uint leftChild;
-   vec3 maxBounds;
-   uint rightChild;
-}; // 32 bytes -> BVH2Node fits nicely into a QuadLeaf -> we can reuse the same storage buffer
-
-struct BVH8Node {
-   // [32b origin x] [32b origin y]
-   uint originX;
-   uint originY;
-   uint originZ;
-
-   // [8b extent x] [8b extent y] [8b extent z] [8b inner node mask]
-   uint extentAndInnerNodeMask;
-
-   // [32b child node base index] [32b triangle base index]
-   uint childNodeBaseIndex;
-   uint quadBaseIndex;
-
-   // [8b child 0] ... [8b child 7]
-   uint meta1;
-   uint meta2
-
-   // Quantized bounds
-   uint qMinX;
-   uint qMinY;
-   uint qMinZ;
-   uint qMaxX;
-   uint qMaxY;
-   uint qMaxZ;
-};
-
-struct BVH8Leaf {
-   float v[9];
-   uint clusterID;
-};
 
 struct AABB {
    vec3 minBounds;
+   float _pad0;
    vec3 maxBounds;
+   float _pad1;
+}; // 32 bytes in std430
+
+struct BVH2Node {
+   vec3 aabbMin;
+   uint leftChild;
+   vec3 aabbMax;
+   uint rightChild;
+}; // 32 bytes
+
+layout(std430, binding = 2) buffer AABBBuffer {
+   AABB aabbs[];
 };
 
-layout(std430, binding = 2) buffer BVH2NodeBuffer {
+layout(std430, binding = 3) buffer MortonCodeBuffer {
+   uint mortonCodes[];
+};
+
+layout(std430, binding = 4) buffer ClusterIndexBuffer {
+   uint clusterIndices[];
+};
+
+layout(std430, binding = 5) buffer ParentIDBuffer {
+   uint parentIDs[];
+};
+
+layout(std430, binding = 6) buffer BVH2NodeBuffer {
    BVH2Node bvh2Nodes[];
 };
 
-layout(std430, binding = 3) buffer BVH8Buffer {
-   BVH8Node bvh8Nodes[]; // ceil((N * 2 - 1) / 8) nodes
+layout(std430, binding = 7) buffer SortScratchBuffer {
+   uint sortScratch[];
 };
 
-layout(std430, binding = 4) buffer BVH8LeafBuffer {
-   BVH8Leaf bvh8Leaves[]; // N leaves
-};
+uint makeClusterID(uint primID, uint geomID) {
+   return (geomID << 24u) | (primID & 0x00FFFFFFu);
+}
 
-layout(std430, binding = 4) buffer AtomicCounterBuffer {
-   uint ac[]; // 6 counters
-};
+uint getClusterPrimID(uint clusterID) {
+   return clusterID & 0x00FFFFFFu;
+}
 
-layout(std430, binding = 5) buffer IndexBuffer { // params.I
-   uint indices[]; // N indices
-};
+uint getClusterGeomID(uint clusterID) {
+   return (clusterID >> 24u) & 0xFFu;
+}
 
-layout(std430, binding = 6) buffer MortonCodeBuffer { // params.C
-   uint curveCodes[]; // N codes, 32bit in our implementation
-};
+bool isInternalNode(uint clusterID) {
+   return getClusterGeomID(clusterID) == GEOM_ID_BVH2;
+}
 
-layout(std430, binding = 7) buffer ParentIDBuffer { // params.pID
-   uint parentIDs[]; // N, initialized to -1
-};
+bool loadClusterAABB(uint clusterID, out vec3 bMin, out vec3 bMax) {
+   uint geomID = getClusterGeomID(clusterID);
+   uint primID = getClusterPrimID(clusterID);
+   
+   if (geomID == GEOM_ID_BVH2) {
+      BVH2Node node = bvh2Nodes[primID];
+      bMin = node.aabbMin;
+      bMax = node.aabbMax;
+      return true;
+   } else {
+      bMin = aabbs[primID].minBounds;
+      bMax = aabbs[primID].maxBounds;
+      return true;
+   }
+}
 
-layout(std430, binding = 8) buffer IndexPairsBuffer { // params.indexPairs
-   uvec2 indexPairs[]; // N pairs (BVH2 to BVH8)
-};
+float computeSurfaceArea(vec3 bMin, vec3 bMax) {
+   vec3 d = bMax - bMin;
+   return max(2.0 * (d.x * d.y + d.x * d.z + d.y * d.z), 0.0);
+}
 
-layout(std430, binding = 9) buffer AABBsBuffer {
-   AABB aabbs[]; // N AABBs
+float computeMergedSurfaceArea(vec3 aMin, vec3 aMax, vec3 bMin, vec3 bMax) {
+   vec3 d = max(aMax, bMax) - min(aMin, bMin);
+   return max(2.0 * (d.x * d.y + d.x * d.z + d.y * d.z), 0.0);
+}
+
+uint delta32(int a, int b, uint N) {
+   if (a < 0 || b >= int(N)) return 0xFFFFFFFFu;
+   uint ca = mortonCodes[a];
+   uint cb = mortonCodes[b];
+   uint x = ca ^ cb;
+   if (x == 0u) return uint(a) ^ uint(a + 1);
+   return x;
+}
+
+uint findParentID(int L, int R, uint N) {
+   if (L == 0 || (R != int(N) && delta32(R, R + 1, N) < delta32(L - 1, L, N)))
+      return uint(R);
+   else
+      return uint(L - 1);
+}
+
+uint encodeRelativeOffset(uint ID, uint neighbor) {
+   uint uOffset = neighbor - ID - 1u;
+   return uOffset << 1u;
+}
+
+int decodeRelativeOffset(int localID, uint offset, uint ID) {
+   uint off = (offset >> 1u) + 1u;
+   return localID + (((offset ^ ID) % 2u == 0u) ? int(off) : -int(off));
 }
 
 #endif

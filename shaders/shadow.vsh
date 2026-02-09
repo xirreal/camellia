@@ -21,6 +21,6 @@ void main() {
    vec3 normal = normalize(mat3(shadowModelViewInverse) * gl_NormalMatrix * gl_Normal);
    float emission = at_midBlock.w;
 
-   vertices[vertexId] = Vertex(playerSpacePos, encodeNormal(normal), coord, emission);
+   vertices[vertexId] = Vertex(playerSpacePos, encodeNormal(normal), coord, emission, 0.0);
    updateSceneBounds(playerSpacePos);
 }
