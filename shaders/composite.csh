@@ -80,7 +80,7 @@ uint mergeClustersCreateBVH2Node(
 
    uint baseNodeOffset = 0u;
    if (subgroupElect()) {
-      baseNodeOffset = atomicAdd(control.data[CTRL_BVH2_NODE_COUNT], numNewNodes);
+      baseNodeOffset = atomicAdd(control.bvh2NodeCount, numNewNodes);
    }
    baseNodeOffset = subgroupBroadcastFirst(baseNodeOffset);
 
@@ -181,7 +181,7 @@ void plocMerge(uint selectedLaneID, uint L, uint R, uint S, bool isFinal) {
 
 void main() {
    uint i = gl_GlobalInvocationID.x;
-   uint N = control.data[CTRL_SORT_TOTAL];
+   uint N = control.sortTotal;
 
    if (N == 0u) return;
 

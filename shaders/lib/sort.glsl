@@ -2,7 +2,7 @@
 #define SORT_INCLUDE_GUARD
 
 uint sortGetN() {
-   return control.data[CTRL_SORT_TOTAL];
+   return control.sortTotal;
 }
 
 uint sortExtractDigit(uint key) {

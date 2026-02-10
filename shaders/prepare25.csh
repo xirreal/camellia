@@ -7,14 +7,14 @@ layout(local_size_x = 256) in;
 
 void main() {
    uint gID = gl_GlobalInvocationID.x;
-   uint N = control.data[CTRL_SORT_TOTAL];
+   uint N = control.sortTotal;
 
    if (gID < N) {
       parentIDs[gID] = INVALID_ID;
 
       if (gID < N - 1u) {
          if (mortonCodes[gID] > mortonCodes[gID + 1u]) {
-            atomicAdd(control.data[CTRL_SORT_ERRORS], 1u);
+            atomicAdd(control.sortErrors, 1u);
          }
       }
 
@@ -32,10 +32,10 @@ void main() {
 
          uint expectedMorton = encodeMorton3D(normCentroid);
          if (expectedMorton != mortonCodes[gID]) {
-            atomicAdd(control.data[CTRL_PAIR_ERRORS], 1u);
+            atomicAdd(control.pairErrors, 1u);
          }
       } else {
-         atomicAdd(control.data[CTRL_PAIR_ERRORS], 1u);
+         atomicAdd(control.pairErrors, 1u);
       }
    }
 }

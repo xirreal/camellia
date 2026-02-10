@@ -19,10 +19,10 @@ float intersectAABB(vec3 bMin, vec3 bMax, vec3 ro, vec3 invRd, float tMinRay, fl
    vec3 t0 = (bMin - ro) * invRd;
    vec3 t1 = (bMax - ro) * invRd;
    vec3 tsmaller = min(t0, t1);
-   vec3 tbigger  = max(t0, t1);
+   vec3 tbigger = max(t0, t1);
 
    float tmin = max(max(tsmaller.x, tsmaller.y), max(tsmaller.z, tMinRay));
-   float tmax = min(min(tbigger.x,  tbigger.y),  min(tbigger.z,  tMaxRay));
+   float tmax = min(min(tbigger.x, tbigger.y), min(tbigger.z, tMaxRay));
 
    return (tmax >= tmin) ? tmin : RT_INF;
 }
@@ -30,7 +30,7 @@ float intersectAABB(vec3 bMin, vec3 bMax, vec3 ro, vec3 invRd, float tMinRay, fl
 bool intersectTri(vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, out float t) {
    vec3 e1 = v1 - v0;
    vec3 e2 = v2 - v0;
-   vec3 p  = cross(rd, e2);
+   vec3 p = cross(rd, e2);
    float det = dot(e1, p);
 
    if (abs(det) < 1e-8) return false;
@@ -82,7 +82,7 @@ TraceResult traceBVH(vec3 ro, vec3 rd) {
    res.normal = vec3(0.0);
    res.hit = false;
 
-   uint nodeCount = control.data[CTRL_BVH2_NODE_COUNT];
+   uint nodeCount = control.bvh2NodeCount;
    if (nodeCount == 0u) return res;
 
    vec3 invRd = safeInvDir(rd);
@@ -151,7 +151,7 @@ TraceResult traceBVH(vec3 ro, vec3 rd) {
       if (h0 && h1) {
          bool leftFirst = (t0 <= t1);
          uint nearID = leftFirst ? c0 : c1;
-         uint farID  = leftFirst ? c1 : c0;
+         uint farID = leftFirst ? c1 : c0;
 
          if (sp < BVH_STACK_SIZE) {
             stack[sp++] = farID;

@@ -86,7 +86,7 @@ void main() {
    printString((_S, _o, _r, _t, _e, _d, _colon));
 
    uint numLeaves = count >> 2u;
-   uint sortErrors = control.data[CTRL_SORT_ERRORS];
+   uint sortErrors = control.sortErrors;
 
    if (sortErrors == 0u) {
       text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
@@ -102,7 +102,7 @@ void main() {
 
    text.fgCol = vec4(1.0);
    printString((_P, _a, _i, _r, _s, _colon));
-   uint pairErrors = control.data[CTRL_PAIR_ERRORS];
+   uint pairErrors = control.pairErrors;
    if (pairErrors == 0u) {
       text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
       printString((_t, _r, _u, _e));
@@ -120,7 +120,7 @@ void main() {
    text.fgCol = vec4(1.0);
    printString((_B, _V, _H, _2, _colon));
    text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
-   printUnsignedIntWithSeparators(control.data[CTRL_BVH2_NODE_COUNT]);
+   printUnsignedIntWithSeparators(control.bvh2NodeCount);
    text.fgCol = vec4(1.0);
    printString((_slash));
    if (numLeaves > 0u) {

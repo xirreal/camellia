@@ -42,19 +42,19 @@ void main() {
 
       uint sortWorkgroups = (N + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
 
-      control.data[CTRL_SORT_DISPATCH_X] = sortWorkgroups;
-      control.data[CTRL_SORT_DISPATCH_Y] = 1u;
-      control.data[CTRL_SORT_DISPATCH_Z] = 1u;
+      control.sortDispatchX = sortWorkgroups;
+      control.sortDispatchY = 1u;
+      control.sortDispatchZ = 1u;
 
-      control.data[CTRL_SORT_SCATTER_X] = sortWorkgroups;
-      control.data[CTRL_SORT_SCATTER_Y] = 1u;
-      control.data[CTRL_SORT_SCATTER_Z] = 1u;
+      control.sortScatterX = sortWorkgroups;
+      control.sortScatterY = 1u;
+      control.sortScatterZ = 1u;
 
       uint hplocWorkgroups = (N + WAVE_SIZE - 1u) / WAVE_SIZE;
-      control.data[CTRL_HPLOC_DISPATCH_X] = hplocWorkgroups;
-      control.data[CTRL_HPLOC_DISPATCH_Y] = 1u;
-      control.data[CTRL_HPLOC_DISPATCH_Z] = 1u;
+      control.hplocDispatchX = hplocWorkgroups;
+      control.hplocDispatchY = 1u;
+      control.hplocDispatchZ = 1u;
 
-      control.data[CTRL_SORT_TOTAL] = N;
+      control.sortTotal = N;
    }
 }

@@ -55,29 +55,6 @@ const uint WAVE_SIZE = 32u;
 const uint SEARCH_RADIUS_SHIFT = 3u;
 const uint SEARCH_RADIUS = 1u << SEARCH_RADIUS_SHIFT;
 
-const uint CTRL_BOUNDS_MIN_X = 0u;
-const uint CTRL_BOUNDS_MIN_Y = 1u;
-const uint CTRL_BOUNDS_MIN_Z = 2u;
-const uint CTRL_BOUNDS_MAX_X = 3u;
-const uint CTRL_BOUNDS_MAX_Y = 4u;
-const uint CTRL_BOUNDS_MAX_Z = 5u;
-const uint CTRL_BVH2_NODE_COUNT = 6u;
-const uint CTRL_SORT_TOTAL = 7u;
-const uint CTRL_SORT_ERRORS = 8u;
-const uint CTRL_PAIR_ERRORS = 9u;
-const uint CTRL_PREPARE_DISPATCH_X = 12u;
-const uint CTRL_PREPARE_DISPATCH_Y = 13u;
-const uint CTRL_PREPARE_DISPATCH_Z = 14u;
-const uint CTRL_SORT_DISPATCH_X = 15u;
-const uint CTRL_SORT_DISPATCH_Y = 16u;
-const uint CTRL_SORT_DISPATCH_Z = 17u;
-const uint CTRL_SORT_SCATTER_X = 18u;
-const uint CTRL_SORT_SCATTER_Y = 19u;
-const uint CTRL_SORT_SCATTER_Z = 20u;
-const uint CTRL_HPLOC_DISPATCH_X = 21u;
-const uint CTRL_HPLOC_DISPATCH_Y = 22u;
-const uint CTRL_HPLOC_DISPATCH_Z = 23u;
-
 const uint RADIX_BITS = 4u;
 const uint RADIX = 1u << RADIX_BITS;
 const uint SORT_WG_SIZE = 256u;
@@ -128,7 +105,28 @@ layout(std430, binding = 0) readonly buffer QuadBuffer {
 #endif
 
 layout(std430, binding = 1) buffer ControlBuffer {
-   uint data[];
+   uint boundsMinX;
+   uint boundsMinY;
+   uint boundsMinZ;
+   uint boundsMaxX;
+   uint boundsMaxY;
+   uint boundsMaxZ;
+   uint bvh2NodeCount;
+   uint sortTotal;
+   uint sortErrors;
+   uint pairErrors;
+   uint prepareDispatchX;
+   uint prepareDispatchY;
+   uint prepareDispatchZ;
+   uint sortDispatchX;
+   uint sortDispatchY;
+   uint sortDispatchZ;
+   uint sortScatterX;
+   uint sortScatterY;
+   uint sortScatterZ;
+   uint hplocDispatchX;
+   uint hplocDispatchY;
+   uint hplocDispatchZ;
 } control;
 
 uvec3 encodeBound(vec3 pos) {
@@ -143,17 +141,17 @@ float decodeBound(uint encodedVal) {
 
 vec3 getSceneMax() {
    return vec3(
-      decodeBound(control.data[CTRL_BOUNDS_MAX_X]),
-      decodeBound(control.data[CTRL_BOUNDS_MAX_Y]),
-      decodeBound(control.data[CTRL_BOUNDS_MAX_Z])
+      decodeBound(control.boundsMaxX),
+      decodeBound(control.boundsMaxY),
+      decodeBound(control.boundsMaxZ)
    );
 }
 
 vec3 getSceneMin() {
    return vec3(
-      decodeBound(control.data[CTRL_BOUNDS_MIN_X]),
-      decodeBound(control.data[CTRL_BOUNDS_MIN_Y]),
-      decodeBound(control.data[CTRL_BOUNDS_MIN_Z])
+      decodeBound(control.boundsMinX),
+      decodeBound(control.boundsMinY),
+      decodeBound(control.boundsMinZ)
    );
 }
 
@@ -165,13 +163,13 @@ void updateSceneBounds(vec3 pos) {
       uvec3 uMin = encodeBound(sMin);
       uvec3 uMax = encodeBound(sMax);
 
-      atomicMin(control.data[CTRL_BOUNDS_MIN_X], uMin.x);
-      atomicMin(control.data[CTRL_BOUNDS_MIN_Y], uMin.y);
-      atomicMin(control.data[CTRL_BOUNDS_MIN_Z], uMin.z);
+      atomicMin(control.boundsMinX, uMin.x);
+      atomicMin(control.boundsMinY, uMin.y);
+      atomicMin(control.boundsMinZ, uMin.z);
 
-      atomicMax(control.data[CTRL_BOUNDS_MAX_X], uMax.x);
-      atomicMax(control.data[CTRL_BOUNDS_MAX_Y], uMax.y);
-      atomicMax(control.data[CTRL_BOUNDS_MAX_Z], uMax.z);
+      atomicMax(control.boundsMaxX, uMax.x);
+      atomicMax(control.boundsMaxY, uMax.y);
+      atomicMax(control.boundsMaxZ, uMax.z);
    }
 }
 

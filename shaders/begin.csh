@@ -10,31 +10,31 @@ layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 void main() {
    count = 0u;
 
-   control.data[CTRL_BOUNDS_MIN_X] = 0xFFFFFFFFu;
-   control.data[CTRL_BOUNDS_MIN_Y] = 0xFFFFFFFFu;
-   control.data[CTRL_BOUNDS_MIN_Z] = 0xFFFFFFFFu;
-   control.data[CTRL_BOUNDS_MAX_X] = 0u;
-   control.data[CTRL_BOUNDS_MAX_Y] = 0u;
-   control.data[CTRL_BOUNDS_MAX_Z] = 0u;
+   control.boundsMinX = 0xFFFFFFFFu;
+   control.boundsMinY = 0xFFFFFFFFu;
+   control.boundsMinZ = 0xFFFFFFFFu;
+   control.boundsMaxX = 0u;
+   control.boundsMaxY = 0u;
+   control.boundsMaxZ = 0u;
 
-   control.data[CTRL_BVH2_NODE_COUNT] = 0u;
-   control.data[CTRL_SORT_TOTAL] = 0u;
-   control.data[CTRL_SORT_ERRORS] = 0u;
-   control.data[CTRL_PAIR_ERRORS] = 0u;
+   control.bvh2NodeCount = 0u;
+   control.sortTotal = 0u;
+   control.sortErrors = 0u;
+   control.pairErrors = 0u;
 
-   control.data[CTRL_PREPARE_DISPATCH_X] = 0u;
-   control.data[CTRL_PREPARE_DISPATCH_Y] = 1u;
-   control.data[CTRL_PREPARE_DISPATCH_Z] = 1u;
+   control.prepareDispatchX = 0u;
+   control.prepareDispatchY = 1u;
+   control.prepareDispatchZ = 1u;
 
-   control.data[CTRL_SORT_DISPATCH_X] = 0u;
-   control.data[CTRL_SORT_DISPATCH_Y] = 1u;
-   control.data[CTRL_SORT_DISPATCH_Z] = 1u;
+   control.sortDispatchX = 0u;
+   control.sortDispatchY = 1u;
+   control.sortDispatchZ = 1u;
 
-   control.data[CTRL_SORT_SCATTER_X] = 0u;
-   control.data[CTRL_SORT_SCATTER_Y] = 1u;
-   control.data[CTRL_SORT_SCATTER_Z] = 1u;
+   control.sortScatterX = 0u;
+   control.sortScatterY = 1u;
+   control.sortScatterZ = 1u;
 
-   control.data[CTRL_HPLOC_DISPATCH_X] = 0u;
-   control.data[CTRL_HPLOC_DISPATCH_Y] = 1u;
-   control.data[CTRL_HPLOC_DISPATCH_Z] = 1u;
+   control.hplocDispatchX = 0u;
+   control.hplocDispatchY = 1u;
+   control.hplocDispatchZ = 1u;
 }
