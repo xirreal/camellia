@@ -5,16 +5,6 @@ const ivec3 workGroups = ivec3(131072, 1, 1);
 #include "/lib/storage.glsl"
 #include "/lib/hploc.glsl"
 
-uint encodeMorton3D(vec3 normalizedPos) {
-   uvec3 i = uvec3(clamp(normalizedPos, 0.0, 1.0) * 1023.0);
-   i &= 0x000003ffu;
-   i = (i ^ (i << 16)) & 0xff0000ffu;
-   i = (i ^ (i << 8)) & 0x0300f00fu;
-   i = (i ^ (i << 4)) & 0x030c30c3u;
-   i = (i ^ (i << 2)) & 0x09249249u;
-   return (i.z << 2) | (i.y << 1) | i.x;
-}
-
 layout(local_size_x = 64) in;
 
 void main() {

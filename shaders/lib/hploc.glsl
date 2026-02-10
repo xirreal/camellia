@@ -4,7 +4,7 @@
 /*
    H-PLOC: Hierarchical Parallel Locally-Ordered Clustering
    for Bounding Volume Hierarchy Construction
-   
+
    https://gpuopen.com/download/HPLOC.pdf
    GLSL port based on Slang implementation by natevm
    https://gist.github.com/natevm/6618402427ad6466bf555d67602adfa8
@@ -15,7 +15,7 @@ struct AABB {
    float _pad0;
    vec3 maxBounds;
    float _pad1;
-}; // 32 bytes in std430
+}; // 32 bytes (i dont like the padding though grr)
 
 struct BVH2Node {
    vec3 aabbMin;
@@ -67,7 +67,7 @@ bool isInternalNode(uint clusterID) {
 bool loadClusterAABB(uint clusterID, out vec3 bMin, out vec3 bMax) {
    uint geomID = getClusterGeomID(clusterID);
    uint primID = getClusterPrimID(clusterID);
-   
+
    if (geomID == GEOM_ID_BVH2) {
       BVH2Node node = bvh2Nodes[primID];
       bMin = node.aabbMin;

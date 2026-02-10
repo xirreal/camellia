@@ -1,9 +1,6 @@
 #ifndef SORT_INCLUDE_GUARD
 #define SORT_INCLUDE_GUARD
 
-// SORT_PASS must be defined before including (0-7)
-// SORT_PHASE must be defined before including (0=upsweep, 1=scan, 2=downsweep)
-
 uint sortGetN() {
    return control.data[CTRL_SORT_TOTAL];
 }
@@ -36,11 +33,7 @@ void sortWriteVal(uint index, uint val) {
    else clusterIndices[index] = val;
 }
 
-// ============================================================
-// PHASE 0: UPSWEEP (Histogram)
-// ============================================================
-// Each workgroup builds a local histogram of the current 4-bit digit
-// and writes it to the per-workgroup pass histogram in global memory.
+// upsweep (histogram build)
 
 #if SORT_PHASE == 0
 
@@ -72,12 +65,7 @@ void sortUpsweep() {
 
 #endif
 
-// ============================================================
-// PHASE 1: SCAN
-// ============================================================
-// Dispatch RADIX workgroups. Each workgroup computes the exclusive
-// prefix sum of its digit bucket across all pass-histogram entries,
-// then stores the digit total for use by the downsweep.
+// radix scan (exclusive prefix sum of histograms)
 
 #if SORT_PHASE == 1
 
@@ -128,12 +116,7 @@ void sortScan() {
 
 #endif
 
-// ============================================================
-// PHASE 2: DOWNSWEEP (Scatter)
-// ============================================================
-// Each workgroup loads its items, ranks them locally per digit,
-// then scatters to the destination buffer using:
-//   globalPrefix[digit] + passPrefix[digit][wgID] + localRank
+// downsweep (scatter to output)
 
 #if SORT_PHASE == 2
 

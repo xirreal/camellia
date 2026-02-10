@@ -10,6 +10,32 @@ uniform float far;
 #extension GL_KHR_shader_subgroup_shuffle : enable
 #extension GL_KHR_shader_subgroup_shuffle_relative : enable
 
+uint expandBits(uint v) {
+   v &= 0x000003ffu;
+   v = (v ^ (v << 16)) & 0xff0000ffu;
+   v = (v ^ (v << 8)) & 0x0300f00fu;
+   v = (v ^ (v << 4)) & 0x030c30c3u;
+   v = (v ^ (v << 2)) & 0x09249249u;
+   return v;
+}
+
+uint encodeMorton3D(vec3 normalizedPos) {
+   uvec3 i = uvec3(clamp(normalizedPos, 0.0, 1.0) * vec3(2047.0, 1023.0, 2047.0));
+
+   uint x_m = expandBits(i.x);
+   uint z_m = expandBits(i.z);
+   uint y_m = expandBits(i.y);
+
+   uint x_top = (i.x & 0x0400u) << 20;
+   uint z_top = (i.z & 0x0400u) << 20;
+
+   uint x_final = x_m | x_top;
+   uint z_final = z_m | z_top;
+   uint y_final = y_m;
+
+   return (y_final << 2) | (z_final << 1) | x_final;
+}
+
 struct Vertex {
    vec3 position;
    uint encodedNormal;
@@ -29,7 +55,6 @@ const uint WAVE_SIZE = 32u;
 const uint SEARCH_RADIUS_SHIFT = 3u;
 const uint SEARCH_RADIUS = 1u << SEARCH_RADIUS_SHIFT;
 
-// Control buffer offsets (in uint indices, multiply by 4 for bytes)
 const uint CTRL_BOUNDS_MIN_X = 0u;
 const uint CTRL_BOUNDS_MIN_Y = 1u;
 const uint CTRL_BOUNDS_MIN_Z = 2u;
@@ -38,6 +63,8 @@ const uint CTRL_BOUNDS_MAX_Y = 4u;
 const uint CTRL_BOUNDS_MAX_Z = 5u;
 const uint CTRL_BVH2_NODE_COUNT = 6u;
 const uint CTRL_SORT_TOTAL = 7u;
+const uint CTRL_SORT_ERRORS = 8u;
+const uint CTRL_PAIR_ERRORS = 9u;
 const uint CTRL_PREPARE_DISPATCH_X = 12u;
 const uint CTRL_PREPARE_DISPATCH_Y = 13u;
 const uint CTRL_PREPARE_DISPATCH_Z = 14u;
@@ -51,21 +78,14 @@ const uint CTRL_HPLOC_DISPATCH_X = 21u;
 const uint CTRL_HPLOC_DISPATCH_Y = 22u;
 const uint CTRL_HPLOC_DISPATCH_Z = 23u;
 
-// Sort constants
 const uint RADIX_BITS = 4u;
-const uint RADIX = 1u << RADIX_BITS; // 16
+const uint RADIX = 1u << RADIX_BITS;
 const uint SORT_WG_SIZE = 256u;
-// Max number of sort workgroups
 const uint SORT_MAX_WORKGROUPS = (MAX_QUAD_COUNT + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
 
-// Sort scratch buffer layout (in uint offsets within buffer 7)
-// Ping-pong keys: MAX_QUAD_COUNT uints
 const uint SORT_SCRATCH_KEYS = 0u;
-// Ping-pong values: MAX_QUAD_COUNT uints
 const uint SORT_SCRATCH_VALS = MAX_QUAD_COUNT;
-// Per-workgroup pass histogram: RADIX * SORT_MAX_WORKGROUPS uints
 const uint SORT_SCRATCH_PASS_HIST = MAX_QUAD_COUNT * 2u;
-// Per-digit totals: RADIX uints (written by scan, read by downsweep)
 const uint SORT_SCRATCH_DIGIT_TOTALS = SORT_SCRATCH_PASS_HIST + RADIX * SORT_MAX_WORKGROUPS;
 
 #ifdef AS_VERTEX

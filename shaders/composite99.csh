@@ -86,48 +86,32 @@ void main() {
    printString((_S, _o, _r, _t, _e, _d, _colon));
 
    uint numLeaves = count >> 2u;
-   bool isSorted = true;
+   uint sortErrors = control.data[CTRL_SORT_ERRORS];
 
-   if (numLeaves > 1u) {
-      #ifdef FAST_CHECK
-      for (uint i = 0u; i < numLeaves - 1u; i++) {
-         uint codeA = mortonCodes[i];
-         uint codeB = mortonCodes[i + 1u];
-         if (codeA > codeB) {
-            isSorted = false;
-            break;
-         }
-      }
-      #else
-      uint checkCount = min(numLeaves - 1u, 100u);
-      for (uint i = 0u; i < checkCount; i++) {
-         uint codeA = mortonCodes[i];
-         uint codeB = mortonCodes[i + 1u];
-         if (codeA > codeB) {
-            isSorted = false;
-            break;
-         }
-      }
-      if (isSorted && numLeaves > 200u) {
-         uint mid = numLeaves / 2u;
-         for (uint i = mid; i < mid + 100u && i + 1u < numLeaves; i++) {
-            uint codeA = mortonCodes[i];
-            uint codeB = mortonCodes[i + 1u];
-            if (codeA > codeB) {
-               isSorted = false;
-               break;
-            }
-         }
-      }
-      #endif
-   }
-
-   if (isSorted) {
+   if (sortErrors == 0u) {
       text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
       printString((_t, _r, _u, _e));
    } else {
       text.fgCol = vec4(0.9, 0.2, 0.25, 1.0);
       printString((_f, _a, _l, _s, _e));
+      printString((_space, _opprn));
+      printUnsignedInt(sortErrors);
+      printString((_clprn));
+   }
+   printLine();
+
+   text.fgCol = vec4(1.0);
+   printString((_P, _a, _i, _r, _s, _colon));
+   uint pairErrors = control.data[CTRL_PAIR_ERRORS];
+   if (pairErrors == 0u) {
+      text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
+      printString((_t, _r, _u, _e));
+   } else {
+      text.fgCol = vec4(0.9, 0.2, 0.25, 1.0);
+      printString((_f, _a, _l, _s, _e));
+      printString((_space, _opprn));
+      printUnsignedInt(pairErrors);
+      printString((_clprn));
    }
    printLine();
 

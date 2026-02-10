@@ -3,7 +3,7 @@
 /*
    H-PLOC: Hierarchical Parallel Locally-Ordered Clustering
    for Bounding Volume Hierarchy Construction
-   
+
    GLSL port based on Slang implementation by natevm
    https://gist.github.com/natevm/6618402427ad6466bf555d67602adfa8
 */
@@ -56,14 +56,12 @@ uint mergeClustersCreateBVH2Node(
 
    uint safeNN = laneHasCluster ? NN : 0u;
    uint n_i_raw = laneHasCluster
-      ? uint(decodeRelativeOffset(int(localID), safeNN & decode_mask, localID))
-      : localID;
+      ? uint(decodeRelativeOffset(int(localID), safeNN & decode_mask, localID)) : localID;
    uint n_i = clamp(n_i_raw, 0u, WAVE_SIZE - 1u);
 
    uint neighborNN = subgroupShuffle(safeNN, n_i);
    uint n_i_n_i_raw = laneHasCluster
-      ? uint(decodeRelativeOffset(int(n_i), neighborNN & decode_mask, n_i))
-      : localID;
+      ? uint(decodeRelativeOffset(int(n_i), neighborNN & decode_mask, n_i)) : localID;
    uint n_i_n_i = clamp(n_i_n_i_raw, 0u, WAVE_SIZE - 1u);
 
    bool symmetricMatch = laneHasCluster && (localID == n_i_n_i);
@@ -106,7 +104,6 @@ uint mergeClustersCreateBVH2Node(
       }
    }
 
-   // Compact via shared memory to avoid __fns / nth-set-bit issues
    bool keepLane = laneHasCluster && (newCI != INVALID_ID);
    uvec4 keepMask = subgroupBallot(keepLane);
    uint totalRemaining = subgroupBallotBitCount(keepMask);

@@ -134,11 +134,9 @@ const uint _clprn = 0x41084220u; // )
 const uint _block = 0xFFFFFFFCu; // █
 const uint _copyr = 0x03AB9AB8u; // ©️
 
-// Additional characters by xirreal
+// Additional characters by xirreal :3
 const uint _slash = 0x00444440u; // /
 const uint _percent = 0x04444444u; // %
-const uint _eq = 0x00e0e000u; // =
-const uint _at = 0x746b5838u; // @
 
 const int charWidth = 5;
 const int charHeight = 6;
