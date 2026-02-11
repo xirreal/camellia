@@ -17,24 +17,19 @@ void main() {
    control.boundsMaxY = 0u;
    control.boundsMaxZ = 0u;
 
-   control.bvh2NodeCount = 0u;
+   control.numBVH2Nodes = 0u;
+
    control.sortTotal = 0u;
    control.sortErrors = 0u;
    control.pairErrors = 0u;
-
-   control.prepareDispatchX = 0u;
-   control.prepareDispatchY = 1u;
-   control.prepareDispatchZ = 1u;
 
    control.sortDispatchX = 0u;
    control.sortDispatchY = 1u;
    control.sortDispatchZ = 1u;
 
-   control.sortScatterX = 0u;
-   control.sortScatterY = 1u;
-   control.sortScatterZ = 1u;
-
    control.hplocDispatchX = 0u;
    control.hplocDispatchY = 1u;
    control.hplocDispatchZ = 1u;
+
+   control.buildError = 0u;
 }

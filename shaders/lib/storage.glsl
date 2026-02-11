@@ -47,18 +47,12 @@ struct Vertex {
 const uint MAX_VERTEX_COUNT = 33554432u;
 const uint MAX_QUAD_COUNT = MAX_VERTEX_COUNT / 4u;
 
-const float MAX_FLOAT = float(0xFFFFFFFFu);
-
-const uint GEOM_ID_BVH2 = 255u;
 const uint INVALID_ID = 0xFFFFFFFFu;
-const uint WAVE_SIZE = 32u;
-const uint SEARCH_RADIUS_SHIFT = 3u;
-const uint SEARCH_RADIUS = 1u << SEARCH_RADIUS_SHIFT;
 
 const uint RADIX_BITS = 4u;
 const uint RADIX = 1u << RADIX_BITS;
-const uint SORT_WG_SIZE = 256u;
-const uint SORT_MAX_WORKGROUPS = (MAX_QUAD_COUNT + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
+#define WG_SIZE 32 // [32 64 128]
+const uint SORT_MAX_WORKGROUPS = (MAX_QUAD_COUNT + WG_SIZE - 1u) / WG_SIZE;
 
 const uint SORT_SCRATCH_KEYS = 0u;
 const uint SORT_SCRATCH_VALS = MAX_QUAD_COUNT;
@@ -105,53 +99,57 @@ layout(std430, binding = 0) readonly buffer QuadBuffer {
 #endif
 
 layout(std430, binding = 1) buffer ControlBuffer {
-   uint boundsMinX;
-   uint boundsMinY;
-   uint boundsMinZ;
-   uint boundsMaxX;
-   uint boundsMaxY;
-   uint boundsMaxZ;
-   uint bvh2NodeCount;
-   uint sortTotal;
-   uint sortErrors;
-   uint pairErrors;
-   uint prepareDispatchX;
-   uint prepareDispatchY;
-   uint prepareDispatchZ;
-   uint sortDispatchX;
-   uint sortDispatchY;
-   uint sortDispatchZ;
-   uint sortScatterX;
-   uint sortScatterY;
-   uint sortScatterZ;
-   uint hplocDispatchX;
-   uint hplocDispatchY;
-   uint hplocDispatchZ;
+   uint boundsMinX; // 0
+   uint boundsMinY; // 4
+   uint boundsMinZ; // 8
+   uint boundsMaxX; // 12
+   uint boundsMaxY; // 16
+   uint boundsMaxZ; // 20
+   uint numBVH2Nodes; // 24
+   uint sortTotal; // 28
+   uint sortErrors; // 32
+   uint pairErrors; // 36
+   uint sortDispatchX; // 40
+   uint sortDispatchY; // 44
+   uint sortDispatchZ; // 48
+   uint hplocDispatchX; // 52
+   uint hplocDispatchY; // 56
+   uint hplocDispatchZ; // 60
+   uint buildError; // 64
 } control;
 
-uvec3 encodeBound(vec3 pos) {
-   vec3 normalized = clamp((pos + far) / (2.0 * far), 0.0, 1.0);
-   return uvec3(normalized * MAX_FLOAT);
+uint floatToOrderedUint(float v) {
+   uint u = floatBitsToUint(v);
+   uint mask = (u & 0x80000000u) != 0u ? 0xFFFFFFFFu : 0x80000000u;
+   return u ^ mask;
 }
 
-float decodeBound(uint encodedVal) {
-   float normalized = float(encodedVal) / MAX_FLOAT;
-   return normalized * (2.0 * far) - far;
+float orderedUintToFloat(uint o) {
+   uint mask = (o & 0x80000000u) != 0u ? 0x80000000u : 0xFFFFFFFFu;
+   return uintBitsToFloat(o ^ mask);
+}
+
+uvec3 encodeBound(vec3 pos) {
+   return uvec3(
+      floatToOrderedUint(pos.x),
+      floatToOrderedUint(pos.y),
+      floatToOrderedUint(pos.z)
+   );
 }
 
 vec3 getSceneMax() {
    return vec3(
-      decodeBound(control.boundsMaxX),
-      decodeBound(control.boundsMaxY),
-      decodeBound(control.boundsMaxZ)
+      orderedUintToFloat(control.boundsMaxX),
+      orderedUintToFloat(control.boundsMaxY),
+      orderedUintToFloat(control.boundsMaxZ)
    );
 }
 
 vec3 getSceneMin() {
    return vec3(
-      decodeBound(control.boundsMinX),
-      decodeBound(control.boundsMinY),
-      decodeBound(control.boundsMinZ)
+      orderedUintToFloat(control.boundsMinX),
+      orderedUintToFloat(control.boundsMinY),
+      orderedUintToFloat(control.boundsMinZ)
    );
 }
 

@@ -32,7 +32,7 @@ void main() {
 
       aabbs[gID] = AABB(quadMin, 0.0, quadMax, 0.0);
       mortonCodes[gID] = morton;
-      clusterIndices[gID] = makeClusterID(gID, 0u);
+      clusterIndices[gID] = gID;
       parentIDs[gID] = INVALID_ID;
    }
 
@@ -40,21 +40,19 @@ void main() {
       uint N = count >> 2u;
       N = min(N, MAX_QUAD_COUNT);
 
-      uint sortWorkgroups = (N + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
+      uint sortWorkgroups = (N + WG_SIZE - 1u) / WG_SIZE;
 
       control.sortDispatchX = sortWorkgroups;
       control.sortDispatchY = 1u;
       control.sortDispatchZ = 1u;
 
-      control.sortScatterX = sortWorkgroups;
-      control.sortScatterY = 1u;
-      control.sortScatterZ = 1u;
+      control.sortTotal = N;
 
-      uint hplocWorkgroups = (N + WAVE_SIZE - 1u) / WAVE_SIZE;
-      control.hplocDispatchX = hplocWorkgroups;
+      uint hplocWGs = (N + 31u) / 32u;
+      control.hplocDispatchX = hplocWGs;
       control.hplocDispatchY = 1u;
       control.hplocDispatchZ = 1u;
 
-      control.sortTotal = N;
+      control.numBVH2Nodes = 0u;
    }
 }

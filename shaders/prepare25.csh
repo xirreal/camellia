@@ -19,7 +19,7 @@ void main() {
       }
 
       uint ci = clusterIndices[gID];
-      uint quadID = getClusterPrimID(ci);
+      uint quadID = ci;
 
       if (quadID < N) {
          Quad q = quads[quadID];

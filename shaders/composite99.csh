@@ -10,7 +10,6 @@ uniform float viewWidth;
 uniform float viewHeight;
 
 #include "/lib/storage.glsl"
-#include "/lib/hploc.glsl"
 #include "/lib/text-rendering.glsl"
 
 vec3 gradient(float t) {
@@ -115,21 +114,6 @@ void main() {
    }
    printLine();
 
-   // BVH2 node count
-   printLine();
-   text.fgCol = vec4(1.0);
-   printString((_B, _V, _H, _2, _colon));
-   text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
-   printUnsignedIntWithSeparators(control.bvh2NodeCount);
-   text.fgCol = vec4(1.0);
-   printString((_slash));
-   if (numLeaves > 0u) {
-      printUnsignedIntWithSeparators(numLeaves - 1u);
-   } else {
-      printUnsignedInt(0u);
-   }
-   printLine();
-
    // Morton codes sample
    printLine();
    text.fgCol = vec4(1.0);
@@ -146,6 +130,21 @@ void main() {
       text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
       printUnsignedIntWithSeparators(mortonCode);
       printLine();
+   }
+   printLine();
+
+   // Build error
+   printLine();
+   text.fgCol = vec4(1.0);
+   printString((_B, _u, _i, _l, _d, _space, _E, _r, _r, _o, _r, _s, _colon));
+   printLine();
+
+   if (control.buildError == ERROR_OUT_OF_BOUNDS) {
+      text.fgCol = vec4(0.9, 0.2, 0.25, 1.0);
+      printString((_O, _u, _t, _space, _o, _f, _space, _b, _o, _u, _n, _d, _s));
+   } else {
+      text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
+      printString((_n, _o, _n, _e));
    }
    printLine();
 
