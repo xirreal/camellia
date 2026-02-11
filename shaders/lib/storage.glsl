@@ -52,7 +52,8 @@ const uint INVALID_ID = 0xFFFFFFFFu;
 const uint RADIX_BITS = 4u;
 const uint RADIX = 1u << RADIX_BITS;
 #define WG_SIZE 32 // [32 64 128]
-const uint SORT_MAX_WORKGROUPS = (MAX_QUAD_COUNT + WG_SIZE - 1u) / WG_SIZE;
+const uint SORT_WG_SIZE = 256u;
+const uint SORT_MAX_WORKGROUPS = (MAX_QUAD_COUNT + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
 
 const uint SORT_SCRATCH_KEYS = 0u;
 const uint SORT_SCRATCH_VALS = MAX_QUAD_COUNT;

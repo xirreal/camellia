@@ -40,7 +40,7 @@ void main() {
       uint N = count >> 2u;
       N = min(N, MAX_QUAD_COUNT);
 
-      uint sortWorkgroups = (N + WG_SIZE - 1u) / WG_SIZE;
+      uint sortWorkgroups = (N + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
 
       control.sortDispatchX = sortWorkgroups;
       control.sortDispatchY = 1u;
@@ -48,7 +48,7 @@ void main() {
 
       control.sortTotal = N;
 
-      uint hplocWGs = (N + 31u) / 32u;
+      uint hplocWGs = (N + uint(WG_SIZE) - 1u) / uint(WG_SIZE);
       control.hplocDispatchX = hplocWGs;
       control.hplocDispatchY = 1u;
       control.hplocDispatchZ = 1u;

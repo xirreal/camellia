@@ -44,7 +44,7 @@ void sortUpsweep() {
    uint lID = gl_LocalInvocationID.x;
    uint wgID = gl_WorkGroupID.x;
    uint N = sortGetN();
-   uint numWG = (N + WG_SIZE - 1u) / WG_SIZE;
+   uint numWG = (N + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
 
    if (wgID >= numWG) return;
 
@@ -69,7 +69,7 @@ void sortUpsweep() {
 
 #if SORT_PHASE == 1
 
-shared uint scanTemp[WG_SIZE];
+shared uint scanTemp[SORT_WG_SIZE];
 
 void sortScan() {
    uint lID = gl_LocalInvocationID.x;
@@ -78,19 +78,19 @@ void sortScan() {
    if (digitBucket >= RADIX) return;
 
    uint N = sortGetN();
-   uint numWG = (N + WG_SIZE - 1u) / WG_SIZE;
+   uint numWG = (N + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
    uint baseOffset = SORT_SCRATCH_PASS_HIST + digitBucket * SORT_MAX_WORKGROUPS;
 
    uint runningSum = 0u;
 
-   for (uint chunkStart = 0u; chunkStart < numWG; chunkStart += WG_SIZE) {
+   for (uint chunkStart = 0u; chunkStart < numWG; chunkStart += SORT_WG_SIZE) {
       uint idx = chunkStart + lID;
       uint val = (idx < numWG) ? sortScratch[baseOffset + idx] : 0u;
 
       scanTemp[lID] = val;
       barrier();
 
-      for (uint stride = 1u; stride < WG_SIZE; stride <<= 1u) {
+      for (uint stride = 1u; stride < SORT_WG_SIZE; stride <<= 1u) {
          uint temp = (lID >= stride) ? scanTemp[lID - stride] : 0u;
          barrier();
          scanTemp[lID] += temp;
@@ -105,7 +105,7 @@ void sortScan() {
       }
 
       barrier();
-      runningSum += scanTemp[WG_SIZE - 1u];
+      runningSum += scanTemp[SORT_WG_SIZE - 1u];
       barrier();
    }
 
@@ -120,7 +120,7 @@ void sortScan() {
 
 #if SORT_PHASE == 2
 
-shared uint localDigits[WG_SIZE];
+shared uint localDigits[SORT_WG_SIZE];
 shared uint globalPrefix[RADIX];
 
 void sortDownsweep() {
@@ -128,7 +128,7 @@ void sortDownsweep() {
    uint lID = gl_LocalInvocationID.x;
    uint wgID = gl_WorkGroupID.x;
    uint N = sortGetN();
-   uint numWG = (N + WG_SIZE - 1u) / WG_SIZE;
+   uint numWG = (N + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
 
    if (wgID >= numWG) return;
 

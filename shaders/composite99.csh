@@ -10,6 +10,7 @@ uniform float viewWidth;
 uniform float viewHeight;
 
 #include "/lib/storage.glsl"
+#include "/lib/hploc.glsl"
 #include "/lib/text-rendering.glsl"
 
 vec3 gradient(float t) {
@@ -142,6 +143,9 @@ void main() {
    if (control.buildError == ERROR_OUT_OF_BOUNDS) {
       text.fgCol = vec4(0.9, 0.2, 0.25, 1.0);
       printString((_O, _u, _t, _space, _o, _f, _space, _b, _o, _u, _n, _d, _s));
+   } else if (control.buildError == ERROR_TIMEOUT) {
+      text.fgCol = vec4(0.9, 0.6, 0.1, 1.0);
+      printString((_T, _i, _m, _e, _o, _u, _t));
    } else {
       text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
       printString((_n, _o, _n, _e));

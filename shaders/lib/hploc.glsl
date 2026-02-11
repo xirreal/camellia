@@ -1,21 +1,29 @@
 #ifndef HPLOC_INCLUDE_GUARD
 #define HPLOC_INCLUDE_GUARD
 
+/*
+   H-PLOC: Hierarchical Parallel Locally-Ordered Clustering
+   for Bounding Volume Hierarchy Construction
+
+   https://gpuopen.com/download/HPLOC.pdf
+   GLSL port based on Slang implementation by natevm
+   https://gist.github.com/natevm/6618402427ad6466bf555d67602adfa8
+*/
+
+#define GEOM_ID_BVH2 0xFFu
+#define WAVE_SIZE WG_SIZE
 #define SEARCH_RADIUS_SHIFT 3
 #define SEARCH_RADIUS (1u << SEARCH_RADIUS_SHIFT)
-#define BVH2_INTERNAL_FLAG 0x80000000u
 
-#define ERROR_OUT_OF_BOUNDS -1
-#define ERROR_TIMEOUT -2
-
-#define INVALID_ID 0xFFFFFFFFu
+#define ERROR_OUT_OF_BOUNDS 1u
+#define ERROR_TIMEOUT 2u
 
 struct AABB {
    vec3 minBounds;
    float _pad0;
    vec3 maxBounds;
    float _pad1;
-}; // 32 bytes
+}; // 32 bytes (i dont like the padding though grr)
 
 struct BVH2Node {
    vec3 aabbMin;
@@ -24,121 +32,86 @@ struct BVH2Node {
    uint rightChild;
 }; // 32 bytes
 
-layout(std430, binding = 2) buffer AABBBuffer {
+layout(std430, binding = 2) coherent buffer AABBBuffer {
    AABB aabbs[];
 };
 
-layout(std430, binding = 3) buffer MortonCodeBuffer {
+layout(std430, binding = 3) coherent buffer MortonCodeBuffer {
    uint mortonCodes[];
 };
 
-layout(std430, binding = 4) buffer ClusterIndexBuffer {
+layout(std430, binding = 4) coherent buffer ClusterIndexBuffer {
    uint clusterIndices[];
 };
 
-layout(std430, binding = 5) buffer ParentIDBuffer {
+layout(std430, binding = 5) coherent buffer ParentIDBuffer {
    uint parentIDs[];
 };
 
-layout(std430, binding = 6) buffer BVH2NodeBuffer {
+layout(std430, binding = 6) coherent buffer BVH2NodeBuffer {
    BVH2Node bvh2Nodes[];
 };
 
-layout(std430, binding = 7) buffer SortScratchBuffer {
+layout(std430, binding = 7) coherent buffer SortScratchBuffer {
    uint sortScratch[];
 };
 
-uint makeClusterID(uint primID, uint flags) {
-   return primID | flags;
+uint makeClusterID(uint primID, uint geomID) {
+   return (geomID << 24u) | (primID & 0x00FFFFFFu);
 }
 
 uint getClusterPrimID(uint clusterID) {
-   return clusterID & 0x7FFFFFFFu;
+   return clusterID & 0x00FFFFFFu;
 }
 
-bool isClusterInternal(uint clusterID) {
-   return (clusterID & BVH2_INTERNAL_FLAG) != 0u;
+uint getClusterGeomID(uint clusterID) {
+   return (clusterID >> 24u) & GEOM_ID_BVH2;
 }
 
-float getSurfaceArea(vec3 bMin, vec3 bMax) {
+bool isInternalNode(uint clusterID) {
+   return getClusterGeomID(clusterID) == GEOM_ID_BVH2;
+}
+
+bool loadClusterAABB(uint clusterID, out vec3 bMin, out vec3 bMax) {
+   uint geomID = getClusterGeomID(clusterID);
+   uint primID = getClusterPrimID(clusterID);
+
+   if (geomID == GEOM_ID_BVH2) {
+      BVH2Node node = bvh2Nodes[primID];
+      bMin = node.aabbMin;
+      bMax = node.aabbMax;
+      return true;
+   } else {
+      bMin = aabbs[primID].minBounds;
+      bMax = aabbs[primID].maxBounds;
+      return true;
+   }
+}
+
+float computeSurfaceArea(vec3 bMin, vec3 bMax) {
    vec3 d = bMax - bMin;
    return max(2.0 * (d.x * d.y + d.x * d.z + d.y * d.z), 0.0);
 }
 
-float distanceFct(vec3 aMin, vec3 aMax, vec3 bMin, vec3 bMax) {
-   vec3 mMin = min(aMin, bMin);
-   vec3 mMax = max(aMax, bMax);
-   vec3 d = mMax - mMin;
+float computeMergedSurfaceArea(vec3 aMin, vec3 aMax, vec3 bMin, vec3 bMax) {
+   vec3 d = max(aMax, bMax) - min(aMin, bMin);
    return max(2.0 * (d.x * d.y + d.x * d.z + d.y * d.z), 0.0);
 }
 
-uint countTrailingZero(uint x) {
-   if (x == 0) {
-      return 32;
-   }
-   return uint(findLSB(x));
-}
-
-uint __fns(uvec4 ballot, uint n) {
-   uint cumulativeCount = 0u;
-   uint indexOffset = 0u;
-
-   for (uint i = 0u; i < 4u; i++) {
-      uint currentChunkCount = bitCount(ballot[i]);
-      if (n <= cumulativeCount + currentChunkCount) {
-         return indexOffset + findNthBitIn32(ballot[i], n - cumulativeCount);
-      }
-      cumulativeCount += currentChunkCount;
-      indexOffset += 32u;
-   }
-   return INVALID_ID;
-}
-
-uint findNthBitIn32(uint mask, uint n) {
-   uint i = 0u;
-   uint c = bitCount(mask & 0x0000FFFFu);
-   if (n > c) {
-      i += 16u;
-      n -= c;
-      mask >>= 16u;
-   }
-   c = bitCount(mask & 0x000000FFu);
-   if (n > c) {
-      i += 8u;
-      n -= c;
-      mask >>= 8u;
-   }
-   c = bitCount(mask & 0x0000000Fu);
-   if (n > c) {
-      i += 4u;
-      n -= c;
-      mask >>= 4u;
-   }
-   c = bitCount(mask & 0x00000003u);
-   if (n > c) {
-      i += 2u;
-      n -= c;
-      mask >>= 2u;
-   }
-   c = bitCount(mask & 0x00000001u);
-   if (n > c) {
-      i += 1u;
-   }
-   return i;
-}
-
-uint delta(int a, int b, uint N) {
-   if (a < 0 || b >= int(N)) return -1;
+uint delta32(int a, int b, uint N) {
+   if (a < 0 || b >= int(N)) return 0xFFFFFFFFu;
    uint ca = mortonCodes[a];
    uint cb = mortonCodes[b];
    uint x = ca ^ cb;
-   if (x != 0u) return uint(a) ^ uint(a + 1u);
+   if (x == 0u) return uint(a) ^ uint(a + 1);
    return x;
 }
 
-uint findParentID(int a, int b, uint N)
-{
-   return (a == 0 || (b != N && (delta(b, b + 1, N) < delta(a - 1, a, N)))) ? b : a - 1;
+uint findParentID(int L, int R, uint N) {
+   if (L == 0 || (R != int(N) && delta32(R, R + 1, N) < delta32(L - 1, L, N)))
+      return uint(R);
+   else
+      return uint(L - 1);
 }
 
 uint encodeRelativeOffset(uint ID, uint neighbor) {
@@ -147,42 +120,8 @@ uint encodeRelativeOffset(uint ID, uint neighbor) {
 }
 
 int decodeRelativeOffset(int localID, uint offset, uint ID) {
-   int off = int((offset >> 1u) + 1u);
-   return localID + (((offset ^ ID) % 2u == 0u) ? off : -off);
-}
-
-uint floatToExponent(float num) {
-   uint bits = floatBitsToUint(num);
-   uint exponentBits = (bits >> 23) & 0xFF;
-   return uint(max(min(exponentBits + 1, 254u), 2u));
-}
-
-float exponentToFloat(uint exponent) {
-   uint bits = exponent << 23;
-   return uintBitsToFloat(bits);
-}
-
-uint getIMask(uint assignedChildren[8], uint numLeaves) {
-   uint iMask = 0;
-   for (int i = 0; i < 8; ++i) {
-      if (assignedChildren[i] != INVALID_ID) {
-         uint relativeIndex = assignedChildren[i];
-         if (relativeIndex >= numLeaves) iMask |= (1 << i);
-      }
-   }
-   return iMask;
-}
-
-void LoadAABB(uint clusterID, out vec3 bMin, out vec3 bMax) {
-   if (isClusterInternal(clusterID)) {
-      uint nodeIdx = getClusterPrimID(clusterID);
-      bMin = bvh2Nodes[nodeIdx].aabbMin;
-      bMax = bvh2Nodes[nodeIdx].aabbMax;
-   } else {
-      uint quadIdx = clusterID;
-      bMin = aabbs[quadIdx].minBounds;
-      bMax = aabbs[quadIdx].maxBounds;
-   }
+   uint off = (offset >> 1u) + 1u;
+   return localID + (((offset ^ ID) % 2u == 0u) ? int(off) : -int(off));
 }
 
 #endif
