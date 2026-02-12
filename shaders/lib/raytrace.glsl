@@ -8,6 +8,8 @@ struct TraceResult {
    float t;
    vec3 normal;
    bool hit;
+   uint depth;   // BVH depth at hit
+   uint quadID;  // quad index that was hit
 };
 
 vec3 safeInvDir(vec3 d) {
@@ -76,6 +78,39 @@ bool intersectQuad(uint quadID, vec3 ro, vec3 rd, inout float tHit, out vec3 nHi
    return hit;
 }
 
+// Load AABB for a child cluster ID with bounds checking.
+// Returns false if the ID is invalid or out of range (sets degenerate AABB).
+bool loadChildAABB(uint childID, uint numQuads, out vec3 bMin, out vec3 bMax) {
+   if (childID == INVALID_ID) {
+      bMin = vec3(RT_INF);
+      bMax = vec3(-RT_INF);
+      return false;
+   }
+
+   uint prim = getClusterPrimID(childID);
+
+   if (isInternalNode(childID)) {
+      if (prim >= control.numBVH2Nodes) {
+         bMin = vec3(RT_INF);
+         bMax = vec3(-RT_INF);
+         return false;
+      }
+      BVH2Node n = bvh2Nodes[prim];
+      bMin = n.aabbMin;
+      bMax = n.aabbMax;
+   } else {
+      if (prim >= numQuads) {
+         bMin = vec3(RT_INF);
+         bMax = vec3(-RT_INF);
+         return false;
+      }
+      AABB a = aabbs[prim];
+      bMin = a.minBounds;
+      bMax = a.maxBounds;
+   }
+   return true;
+}
+
 const float DIAGONAL = sqrt(3.0);
 
 TraceResult traceBVH(vec3 ro, vec3 rd) {
@@ -83,66 +118,60 @@ TraceResult traceBVH(vec3 ro, vec3 rd) {
    res.t = (8.0 + (far * 16.0)) * DIAGONAL;
    res.normal = vec3(0.0);
    res.hit = false;
+   res.depth = 0u;
+   res.quadID = INVALID_ID;
 
-   uint nodeCount = control.numBVH2Nodes;
-   if (nodeCount == 0u) return res;
+   uint rootID = control.rootClusterID;
+   if (rootID == INVALID_ID) return res;
 
    vec3 invRd = safeInvDir(rd);
 
    uint stack[BVH_STACK_SIZE];
    int sp = 0;
 
-   uint nodeID = makeClusterID(nodeCount - 1u, GEOM_ID_BVH2);
+   uint nodeID = rootID;
+   uint numQuads = control.sortTotal;
+   uint steps = 0u;
 
-   for (int iter = 0; iter < 256; iter++) {
+   for (int iter = 0; iter < 512; iter++) {
       if (nodeID == INVALID_ID) {
          if (sp == 0) break;
-         nodeID = stack[--sp];
+         --sp;
+         nodeID = stack[sp];
          continue;
       }
 
-      uint geom = getClusterGeomID(nodeID);
+      steps++;
       uint prim = getClusterPrimID(nodeID);
 
-      if (geom != GEOM_ID_BVH2) {
-         vec3 nHit;
-         if (intersectQuad(prim, ro, rd, res.t, nHit)) {
-            res.normal = nHit;
-            res.hit = true;
+      if (!isInternalNode(nodeID)) {
+         // Leaf node - bounds check the quad index
+         if (prim < numQuads) {
+            vec3 nHit;
+            if (intersectQuad(prim, ro, rd, res.t, nHit)) {
+               res.normal = nHit;
+               res.hit = true;
+               res.depth = steps;
+               res.quadID = prim;
+            }
          }
          nodeID = INVALID_ID;
          continue;
       }
 
-      BVH2Node node = bvh2Nodes[prim];
+      // Internal node - bounds check the BVH node index
+      if (prim >= control.numBVH2Nodes) {
+         nodeID = INVALID_ID;
+         continue;
+      }
 
-      vec3 b0min, b0max, b1min, b1max;
+      BVH2Node node = bvh2Nodes[prim];
       uint c0 = node.leftChild;
       uint c1 = node.rightChild;
 
-      uint g0 = getClusterGeomID(c0);
-      uint p0 = getClusterPrimID(c0);
-      if (g0 == GEOM_ID_BVH2) {
-         BVH2Node n0 = bvh2Nodes[p0];
-         b0min = n0.aabbMin;
-         b0max = n0.aabbMax;
-      } else {
-         AABB a0 = aabbs[p0];
-         b0min = a0.minBounds;
-         b0max = a0.maxBounds;
-      }
-
-      uint g1 = getClusterGeomID(c1);
-      uint p1 = getClusterPrimID(c1);
-      if (g1 == GEOM_ID_BVH2) {
-         BVH2Node n1 = bvh2Nodes[p1];
-         b1min = n1.aabbMin;
-         b1max = n1.aabbMax;
-      } else {
-         AABB a1 = aabbs[p1];
-         b1min = a1.minBounds;
-         b1max = a1.maxBounds;
-      }
+      vec3 b0min, b0max, b1min, b1max;
+      loadChildAABB(c0, numQuads, b0min, b0max);
+      loadChildAABB(c1, numQuads, b1min, b1max);
 
       float t0 = intersectAABB(b0min, b0max, ro, invRd, 0.0, res.t);
       float t1 = intersectAABB(b1min, b1max, ro, invRd, 0.0, res.t);
@@ -156,7 +185,8 @@ TraceResult traceBVH(vec3 ro, vec3 rd) {
          uint farID = leftFirst ? c1 : c0;
 
          if (sp < BVH_STACK_SIZE) {
-            stack[sp++] = farID;
+            stack[sp] = farID;
+            sp++;
          }
          nodeID = nearID;
       } else if (h0) {
@@ -169,6 +199,101 @@ TraceResult traceBVH(vec3 ro, vec3 rd) {
    }
 
    return res;
+}
+
+// Debug: trace BVH and return box color based on AABB surface area of first hit
+vec4 traceBVHDebugBoxes(vec3 ro, vec3 rd) {
+   uint rootID = control.rootClusterID;
+   if (rootID == INVALID_ID) return vec4(0.0);
+
+   vec3 invRd = safeInvDir(rd);
+   float maxT = (8.0 + (far * 16.0)) * DIAGONAL;
+   uint numQuads = control.sortTotal;
+
+   uint stack[BVH_STACK_SIZE];
+   int sp = 0;
+
+   uint nodeID = rootID;
+   float closestT = maxT;
+   float closestSA = 0.0;  // surface area of the closest-hit AABB
+   bool anyHit = false;
+
+   for (int iter = 0; iter < 512; iter++) {
+      if (nodeID == INVALID_ID) {
+         if (sp == 0) break;
+         --sp;
+         nodeID = stack[sp];
+         continue;
+      }
+
+      uint prim = getClusterPrimID(nodeID);
+
+      if (!isInternalNode(nodeID)) {
+         // Leaf - test its AABB for debug visualization
+         if (prim < numQuads) {
+            AABB a = aabbs[prim];
+            float t = intersectAABB(a.minBounds, a.maxBounds, ro, invRd, 0.001, closestT);
+            if (t != RT_INF && t < closestT) {
+               closestT = t;
+               closestSA = computeSurfaceArea(a.minBounds, a.maxBounds);
+               anyHit = true;
+            }
+         }
+         nodeID = INVALID_ID;
+         continue;
+      }
+
+      if (prim >= control.numBVH2Nodes) {
+         nodeID = INVALID_ID;
+         continue;
+      }
+
+      BVH2Node node = bvh2Nodes[prim];
+      uint c0 = node.leftChild;
+      uint c1 = node.rightChild;
+
+      vec3 b0min, b0max, b1min, b1max;
+      loadChildAABB(c0, numQuads, b0min, b0max);
+      loadChildAABB(c1, numQuads, b1min, b1max);
+
+      float t0 = intersectAABB(b0min, b0max, ro, invRd, 0.001, closestT);
+      float t1 = intersectAABB(b1min, b1max, ro, invRd, 0.001, closestT);
+
+      bool h0 = (t0 != RT_INF);
+      bool h1 = (t1 != RT_INF);
+
+      if (h0 && h1) {
+         bool leftFirst = (t0 <= t1);
+         uint nearID = leftFirst ? c0 : c1;
+         uint farID = leftFirst ? c1 : c0;
+
+         if (sp < BVH_STACK_SIZE) {
+            stack[sp] = farID;
+            sp++;
+         }
+         nodeID = nearID;
+      } else if (h0) {
+         nodeID = c0;
+      } else if (h1) {
+         nodeID = c1;
+      } else {
+         nodeID = INVALID_ID;
+      }
+   }
+
+   if (anyHit) {
+      // Color by AABB surface area: small (blue) -> medium (green) -> large (red)
+      // log scale for better distribution; 1 block² to ~4096 block² range
+      float logSA = clamp(log2(max(closestSA, 1.0)) / 12.0, 0.0, 1.0);
+      vec3 color;
+      if (logSA < 0.5) {
+         color = mix(vec3(0.2, 0.4, 1.0), vec3(0.2, 1.0, 0.2), logSA * 2.0);
+      } else {
+         color = mix(vec3(0.2, 1.0, 0.2), vec3(1.0, 0.2, 0.2), (logSA - 0.5) * 2.0);
+      }
+      return vec4(color, 0.6);
+   }
+   return vec4(0.0);
 }
 
 #endif

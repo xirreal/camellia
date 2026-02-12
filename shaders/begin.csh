@@ -32,4 +32,11 @@ void main() {
    control.hplocDispatchZ = 1u;
 
    control.buildError = 0u;
-}
+   control.rootClusterID = INVALID_ID;
+
+   control.quadErrNanInf = 0u;
+   control.quadErrExtent = 0u;
+   control.quadErrCoplanar = 0u;
+   control.quadErrDegenerate = 0u;
+   control.quadErrCollapsed = 0u;
+   }

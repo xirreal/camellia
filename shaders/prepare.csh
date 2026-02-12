@@ -32,7 +32,7 @@ void main() {
 
       aabbs[gID] = AABB(quadMin, 0.0, quadMax, 0.0);
       mortonCodes[gID] = morton;
-      clusterIndices[gID] = gID;
+      clusterIndices[gID] = makeLeafID(gID);
       parentIDs[gID] = INVALID_ID;
    }
 

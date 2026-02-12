@@ -10,7 +10,11 @@
    https://gist.github.com/natevm/6618402427ad6466bf555d67602adfa8
 */
 
-#define GEOM_ID_BVH2 0xFFu
+// Cluster ID layout: bit 31 = internal (BVH2 node) flag, bits 0-30 = primID
+// INVALID_ID (0xFFFFFFFF) must be checked before decoding.
+#define CLUSTER_INTERNAL_BIT 0x80000000u
+#define CLUSTER_PRIM_MASK    0x7FFFFFFFu
+
 #define WAVE_SIZE WG_SIZE
 #define SEARCH_RADIUS_SHIFT 3
 #define SEARCH_RADIUS (1u << SEARCH_RADIUS_SHIFT)
@@ -32,11 +36,11 @@ struct BVH2Node {
    uint rightChild;
 }; // 32 bytes
 
-layout(std430, binding = 2) coherent buffer AABBBuffer {
+layout(std430, binding = 2) restrict buffer AABBBuffer {
    AABB aabbs[];
 };
 
-layout(std430, binding = 3) coherent buffer MortonCodeBuffer {
+layout(std430, binding = 3) restrict buffer MortonCodeBuffer {
    uint mortonCodes[];
 };
 
@@ -44,39 +48,38 @@ layout(std430, binding = 4) coherent buffer ClusterIndexBuffer {
    uint clusterIndices[];
 };
 
-layout(std430, binding = 5) coherent buffer ParentIDBuffer {
+layout(std430, binding = 5) restrict buffer ParentIDBuffer {
    uint parentIDs[];
 };
 
-layout(std430, binding = 6) coherent buffer BVH2NodeBuffer {
+layout(std430, binding = 6) restrict buffer BVH2NodeBuffer {
    BVH2Node bvh2Nodes[];
 };
 
-layout(std430, binding = 7) coherent buffer SortScratchBuffer {
+layout(std430, binding = 7) restrict buffer SortScratchBuffer {
    uint sortScratch[];
 };
 
-uint makeClusterID(uint primID, uint geomID) {
-   return (geomID << 24u) | (primID & 0x00FFFFFFu);
+uint makeLeafID(uint primID) {
+   return primID & CLUSTER_PRIM_MASK;
+}
+
+uint makeInternalID(uint primID) {
+   return CLUSTER_INTERNAL_BIT | (primID & CLUSTER_PRIM_MASK);
 }
 
 uint getClusterPrimID(uint clusterID) {
-   return clusterID & 0x00FFFFFFu;
-}
-
-uint getClusterGeomID(uint clusterID) {
-   return (clusterID >> 24u) & GEOM_ID_BVH2;
+   return clusterID & CLUSTER_PRIM_MASK;
 }
 
 bool isInternalNode(uint clusterID) {
-   return getClusterGeomID(clusterID) == GEOM_ID_BVH2;
+   return (clusterID & CLUSTER_INTERNAL_BIT) != 0u;
 }
 
 bool loadClusterAABB(uint clusterID, out vec3 bMin, out vec3 bMax) {
-   uint geomID = getClusterGeomID(clusterID);
    uint primID = getClusterPrimID(clusterID);
 
-   if (geomID == GEOM_ID_BVH2) {
+   if (isInternalNode(clusterID)) {
       BVH2Node node = bvh2Nodes[primID];
       bMin = node.aabbMin;
       bMax = node.aabbMax;

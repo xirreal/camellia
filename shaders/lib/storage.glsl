@@ -117,6 +117,12 @@ layout(std430, binding = 1) buffer ControlBuffer {
    uint hplocDispatchY; // 56
    uint hplocDispatchZ; // 60
    uint buildError; // 64
+   uint rootClusterID; // 68
+   uint quadErrNanInf; // 72
+   uint quadErrExtent; // 76
+   uint quadErrCoplanar; // 80
+   uint quadErrDegenerate; // 84
+   uint quadErrCollapsed; // 88
 } control;
 
 uint floatToOrderedUint(float v) {

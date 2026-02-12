@@ -152,6 +152,75 @@ void main() {
    }
    printLine();
 
+   // BVH root
+   printLine();
+   text.fgCol = vec4(1.0);
+   printString((_R, _o, _o, _t, _colon));
+   if (control.rootClusterID == INVALID_ID) {
+      text.fgCol = vec4(0.9, 0.2, 0.25, 1.0);
+      printString((_n, _o, _n, _e));
+   } else {
+      text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
+      printUnsignedIntWithSeparators(control.rootClusterID);
+   }
+   printLine();
+
+   text.fgCol = vec4(1.0);
+   printString((_B, _V, _H, _space, _N, _o, _d, _e, _s, _colon));
+   text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
+   printUnsignedIntWithSeparators(control.numBVH2Nodes);
+   printLine();
+
+   // Quad validation
+   printLine();
+   text.fgCol = vec4(1.0);
+   printString((_Q, _u, _a, _d, _space, _V, _a, _l, _i, _d, _colon));
+   printLine();
+
+   uint totalQuadErr = control.quadErrNanInf + control.quadErrExtent
+                     + control.quadErrCoplanar + control.quadErrDegenerate
+                     + control.quadErrCollapsed;
+
+   text.fgCol = vec4(1.0);
+   printString((_space, _N, _a, _N, _colon));
+   text.fgCol = (control.quadErrNanInf == 0u)
+      ? vec4(0.4, 1.0, 0.4, 1.0)
+      : vec4(0.9, 0.2, 0.25, 1.0);
+   printUnsignedIntWithSeparators(control.quadErrNanInf);
+   printLine();
+
+   text.fgCol = vec4(1.0);
+   printString((_space, _E, _x, _t, _colon));
+   text.fgCol = (control.quadErrExtent == 0u)
+      ? vec4(0.4, 1.0, 0.4, 1.0)
+      : vec4(0.9, 0.2, 0.25, 1.0);
+   printUnsignedIntWithSeparators(control.quadErrExtent);
+   printLine();
+
+   text.fgCol = vec4(1.0);
+   printString((_space, _C, _o, _p, _colon));
+   text.fgCol = (control.quadErrCoplanar == 0u)
+      ? vec4(0.4, 1.0, 0.4, 1.0)
+      : vec4(0.9, 0.2, 0.25, 1.0);
+   printUnsignedIntWithSeparators(control.quadErrCoplanar);
+   printLine();
+
+   text.fgCol = vec4(1.0);
+   printString((_space, _D, _e, _g, _colon));
+   text.fgCol = (control.quadErrDegenerate == 0u)
+      ? vec4(0.4, 1.0, 0.4, 1.0)
+      : vec4(0.9, 0.2, 0.25, 1.0);
+   printUnsignedIntWithSeparators(control.quadErrDegenerate);
+   printLine();
+
+   text.fgCol = vec4(1.0);
+   printString((_space, _C, _l, _p, _colon));
+   text.fgCol = (control.quadErrCollapsed == 0u)
+      ? vec4(0.4, 1.0, 0.4, 1.0)
+      : vec4(0.9, 0.2, 0.25, 1.0);
+   printUnsignedIntWithSeparators(control.quadErrCollapsed);
+   printLine();
+
    endText(color);
 
    beginText(ivec2(coord * 0.25), ivec2(2, 10));

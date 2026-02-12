@@ -96,7 +96,7 @@ uint mergeClustersCreateBVH2Node(
             bvh2Nodes[bvh2Index] = BVH2Node(newMin, leftCI, newMax, rightCI);
             boundsMin = newMin;
             boundsMax = newMax;
-            newCI = makeClusterID(bvh2Index, GEOM_ID_BVH2);
+            newCI = makeInternalID(bvh2Index);
          } else {
             newCI = INVALID_ID;
          }
@@ -176,6 +176,15 @@ void plocMerge(uint selectedLaneID, uint L, uint R, uint S, bool isFinal) {
    }
 
    storeIndicesToBuffer(numLeft + numRight, CI, LStart);
+
+   // If this was the final merge, store the root cluster ID
+   if (finalBroadcast && numPrims == 1u) {
+      uvec4 rootMask = subgroupBallot(CI != INVALID_ID);
+      if (subgroupElect()) {
+         uint rootLane = findLSB(rootMask.x);
+         control.rootClusterID = subgroupShuffle(CI, rootLane);
+      }
+   }
 }
 
 void main() {
