@@ -60,45 +60,6 @@ const uint SORT_SCRATCH_VALS = MAX_QUAD_COUNT;
 const uint SORT_SCRATCH_PASS_HIST = MAX_QUAD_COUNT * 2u;
 const uint SORT_SCRATCH_DIGIT_TOTALS = SORT_SCRATCH_PASS_HIST + RADIX * SORT_MAX_WORKGROUPS;
 
-#ifdef AS_VERTEX
-
-layout(std430, binding = 0) buffer VertexBuffer {
-   uint count;
-   Vertex vertices[];
-};
-
-uint getVertexWriteIndex() {
-   uvec4 activeMask = subgroupBallot(true);
-   uint activeThreads = subgroupBallotBitCount(activeMask);
-
-   uint vertexId = 0u;
-
-   if (subgroupElect()) {
-      vertexId = atomicAdd(count, activeThreads);
-   }
-
-   vertexId = subgroupBroadcastFirst(vertexId);
-   vertexId += subgroupBallotExclusiveBitCount(activeMask);
-
-   return vertexId;
-}
-
-#else
-
-struct Quad {
-   Vertex v1;
-   Vertex v2;
-   Vertex v3;
-   Vertex v4;
-}; // 128 bytes
-
-layout(std430, binding = 0) readonly buffer QuadBuffer {
-   uint count;
-   Quad quads[];
-};
-
-#endif
-
 layout(std430, binding = 1) buffer ControlBuffer {
    uint boundsMinX; // 0
    uint boundsMinY; // 4
@@ -123,7 +84,101 @@ layout(std430, binding = 1) buffer ControlBuffer {
    uint quadErrCoplanar; // 80
    uint quadErrDegenerate; // 84
    uint quadErrCollapsed; // 88
+   uint realCount1; // 92
+   uint realCount2; // 96
 } control;
+
+#ifdef AS_VERTEX
+
+layout(std430, binding = 0) buffer VertexBuffer {
+   uint count;
+   Vertex vertices[];
+};
+
+struct VertexAlloc {
+   uint vertexId;
+   uint fillStartId;
+   uint fillCount;
+};
+
+VertexAlloc getVertexWriteIndex() {
+   VertexAlloc alloc;
+   alloc.vertexId = INVALID_ID;
+   alloc.fillStartId = INVALID_ID;
+   alloc.fillCount = 0;
+
+   uvec4 activeMask = subgroupBallot(true);
+   uint activeThreads = subgroupBallotBitCount(activeMask);
+   uint allocatedThreads = (activeThreads + 3u) & ~3u; // round up to 4
+
+   uint baseVertexId = 0u;
+   if (subgroupElect()) {
+      baseVertexId = atomicAdd(count, allocatedThreads);
+   }
+   baseVertexId = subgroupBroadcastFirst(baseVertexId);
+
+   uint localIndex = gl_SubgroupInvocationID;
+
+   if (baseVertexId + allocatedThreads > MAX_VERTEX_COUNT) {
+      return alloc;
+   }
+
+   // hole detected
+   if (localIndex < activeThreads) {
+      alloc.vertexId = baseVertexId + localIndex;
+
+      if (localIndex == activeThreads - 1u) {
+         uint numHoles = allocatedThreads - activeThreads;
+         if (numHoles > 0u) {
+            alloc.fillStartId = baseVertexId + activeThreads;
+            alloc.fillCount = numHoles;
+         }
+      }
+   }
+   return alloc;
+}
+
+void fillHoleVertices(VertexAlloc alloc, Vertex vertex) {
+   if (alloc.fillCount == 0) return;
+
+   vec3 v1pos = subgroupShuffleUp(vertex.position, 1);
+   vec3 v0pos = subgroupShuffleUp(vertex.position, 2);
+   vec2 v1uv = subgroupShuffleUp(vertex.uv, 1);
+   vec2 v0uv = subgroupShuffleUp(vertex.uv, 2);
+
+   uint writeIdx = alloc.fillStartId;
+   Vertex newVertex = vertex;
+
+   if (alloc.fillCount == 1u) {
+      newVertex.position = v0pos + vertex.position - v1pos;
+      newVertex.uv = v0uv + vertex.uv - v1uv;
+      newVertex.encodedNormal = vertex.encodedNormal;
+      newVertex.emission = vertex.emission;
+      newVertex._pad = 0.0;
+   } else if (alloc.fillCount == 2u) {
+      atomicAdd(control.realCount2, 1u);
+   } else if (alloc.fillCount == 3u) {
+      atomicAdd(control.realCount1, 1u);
+   }
+
+   vertices[writeIdx] = newVertex;
+}
+
+#else
+
+struct Quad {
+   Vertex v1;
+   Vertex v2;
+   Vertex v3;
+   Vertex v4;
+}; // 128 bytes
+
+layout(std430, binding = 0) readonly buffer QuadBuffer {
+   uint count;
+   Quad quads[];
+};
+
+#endif
 
 uint floatToOrderedUint(float v) {
    uint u = floatBitsToUint(v);

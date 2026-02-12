@@ -39,4 +39,7 @@ void main() {
    control.quadErrCoplanar = 0u;
    control.quadErrDegenerate = 0u;
    control.quadErrCollapsed = 0u;
-   }
+
+   control.realCount1 = 0u;
+   control.realCount2 = 0u;
+}

@@ -178,47 +178,58 @@ void main() {
    printLine();
 
    uint totalQuadErr = control.quadErrNanInf + control.quadErrExtent
-                     + control.quadErrCoplanar + control.quadErrDegenerate
-                     + control.quadErrCollapsed;
+         + control.quadErrCoplanar + control.quadErrDegenerate
+         + control.quadErrCollapsed;
 
    text.fgCol = vec4(1.0);
    printString((_space, _N, _a, _N, _colon));
    text.fgCol = (control.quadErrNanInf == 0u)
-      ? vec4(0.4, 1.0, 0.4, 1.0)
-      : vec4(0.9, 0.2, 0.25, 1.0);
+      ? vec4(0.4, 1.0, 0.4, 1.0) : vec4(0.9, 0.2, 0.25, 1.0);
    printUnsignedIntWithSeparators(control.quadErrNanInf);
    printLine();
 
    text.fgCol = vec4(1.0);
    printString((_space, _E, _x, _t, _colon));
    text.fgCol = (control.quadErrExtent == 0u)
-      ? vec4(0.4, 1.0, 0.4, 1.0)
-      : vec4(0.9, 0.2, 0.25, 1.0);
+      ? vec4(0.4, 1.0, 0.4, 1.0) : vec4(0.9, 0.2, 0.25, 1.0);
    printUnsignedIntWithSeparators(control.quadErrExtent);
    printLine();
 
    text.fgCol = vec4(1.0);
    printString((_space, _C, _o, _p, _colon));
    text.fgCol = (control.quadErrCoplanar == 0u)
-      ? vec4(0.4, 1.0, 0.4, 1.0)
-      : vec4(0.9, 0.2, 0.25, 1.0);
+      ? vec4(0.4, 1.0, 0.4, 1.0) : vec4(0.9, 0.2, 0.25, 1.0);
    printUnsignedIntWithSeparators(control.quadErrCoplanar);
    printLine();
 
    text.fgCol = vec4(1.0);
    printString((_space, _D, _e, _g, _colon));
    text.fgCol = (control.quadErrDegenerate == 0u)
-      ? vec4(0.4, 1.0, 0.4, 1.0)
-      : vec4(0.9, 0.2, 0.25, 1.0);
+      ? vec4(0.4, 1.0, 0.4, 1.0) : vec4(0.9, 0.2, 0.25, 1.0);
    printUnsignedIntWithSeparators(control.quadErrDegenerate);
    printLine();
 
    text.fgCol = vec4(1.0);
    printString((_space, _C, _l, _p, _colon));
    text.fgCol = (control.quadErrCollapsed == 0u)
-      ? vec4(0.4, 1.0, 0.4, 1.0)
-      : vec4(0.9, 0.2, 0.25, 1.0);
+      ? vec4(0.4, 1.0, 0.4, 1.0) : vec4(0.9, 0.2, 0.25, 1.0);
    printUnsignedIntWithSeparators(control.quadErrCollapsed);
+   printLine();
+
+   // Number of quads with only 2 vertices
+   text.fgCol = vec4(1.0);
+   printString((_2, _v, _colon));
+   text.fgCol = (control.realCount2 == 0u)
+      ? vec4(0.4, 1.0, 0.4, 1.0) : vec4(0.9, 0.2, 0.25, 1.0);
+   printUnsignedIntWithSeparators(control.realCount2);
+   printLine();
+
+   // Number of quads with only 1 vertex
+   text.fgCol = vec4(1.0);
+   printString((_1, _v, _colon));
+   text.fgCol = (control.realCount1 == 0u)
+      ? vec4(0.4, 1.0, 0.4, 1.0) : vec4(0.9, 0.2, 0.25, 1.0);
+   printUnsignedIntWithSeparators(control.realCount1);
    printLine();
 
    endText(color);

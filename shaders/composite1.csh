@@ -35,13 +35,9 @@ void main() {
    vec4 outColor;
 
    #if RT_DEBUG_MODE == 1
-   // BVH traversal cost heatmap: color by number of traversal steps
    TraceResult result = traceBVH(worldOrigin, worldDir);
    if (result.hit) {
-      // Use traversal step count for a stable heatmap
-      // depth here represents steps taken; normalize against max iterations
       float costNorm = clamp(float(result.depth) / 64.0, 0.0, 1.0);
-      // Blue -> Green -> Yellow -> Red
       vec3 heatmap;
       if (costNorm < 0.33) {
          heatmap = mix(vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 0.0), costNorm * 3.0);
@@ -56,7 +52,6 @@ void main() {
    }
 
    #elif RT_DEBUG_MODE == 2
-   // BVH box debug: show colored AABB outlines by depth
    vec4 boxColor = traceBVHDebugBoxes(worldOrigin, worldDir);
    TraceResult result = traceBVH(worldOrigin, worldDir);
    if (result.hit) {
@@ -69,7 +64,6 @@ void main() {
    }
 
    #else
-   // Normal shading
    TraceResult result = traceBVH(worldOrigin, worldDir);
    if (result.hit) {
       vec3 normal = result.normal * 0.5 + 0.5;
