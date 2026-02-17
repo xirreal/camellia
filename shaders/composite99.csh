@@ -1,5 +1,7 @@
 #version 460
 
+//#define ENABLE_DEBUG_OVERLAY
+
 layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 
 layout(rgba8) uniform writeonly image2D colorimg0;
@@ -22,6 +24,7 @@ void main() {
 
    if (coord.x >= int(viewWidth) || coord.y >= int(viewHeight)) return;
 
+   #ifdef ENABLE_DEBUG_OVERLAY
    int halfWidth = int(viewWidth) / 2;
    vec3 color;
 
@@ -238,4 +241,8 @@ void main() {
    }
 
    imageStore(colorimg0, coord, vec4(color, 1.0));
+   #else
+   vec3 color = texelFetch(colortex1, coord, 0).rgb;
+   imageStore(colorimg0, coord, vec4(color, 1.0));
+   #endif
 }

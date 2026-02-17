@@ -1,5 +1,7 @@
 #version 460
 
+//#define ENABLE_SORT_VALIDATION
+
 #include "/lib/storage.glsl"
 #include "/lib/hploc.glsl"
 
@@ -12,6 +14,7 @@ void main() {
    if (gID < N) {
       parentIDs[gID] = INVALID_ID;
 
+      #ifdef ENABLE_SORT_VALIDATION
       if (gID < N - 1u) {
          if (mortonCodes[gID] > mortonCodes[gID + 1u]) {
             atomicAdd(control.sortErrors, 1u);
@@ -37,5 +40,6 @@ void main() {
       } else {
          atomicAdd(control.pairErrors, 1u);
       }
+      #endif
    }
 }

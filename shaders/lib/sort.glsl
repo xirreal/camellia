@@ -122,6 +122,8 @@ void sortScan() {
 
 shared uint localDigits[SORT_WG_SIZE];
 shared uint globalPrefix[RADIX];
+shared uint scanTemp[SORT_WG_SIZE];
+shared uint localRank[SORT_WG_SIZE];
 
 void sortDownsweep() {
    uint gID = gl_GlobalInvocationID.x;
@@ -151,16 +153,34 @@ void sortDownsweep() {
 
    uint digit = valid ? sortExtractDigit(key) : RADIX;
    localDigits[lID] = digit;
+   localRank[lID] = 0u;
    barrier();
 
-   if (valid) {
-      uint rank = 0u;
-      for (uint j = 0u; j < lID; j++) {
-         if (localDigits[j] == digit) rank++;
+   for (uint d = 0u; d < RADIX; d++) {
+      uint flag = (digit == d) ? 1u : 0u;
+      scanTemp[lID] = flag;
+      barrier();
+
+      for (uint stride = 1u; stride < SORT_WG_SIZE; stride <<= 1u) {
+         uint temp = (lID >= stride) ? scanTemp[lID - stride] : 0u;
+         barrier();
+         scanTemp[lID] += temp;
+         barrier();
       }
 
+      uint inclusive = scanTemp[lID];
+      uint exclusive = inclusive - flag;
+
+      if (digit == d) {
+         localRank[lID] = exclusive;
+      }
+
+      barrier();
+   }
+
+   if (valid) {
       uint passPrefix = sortScratch[SORT_SCRATCH_PASS_HIST + digit * SORT_MAX_WORKGROUPS + wgID];
-      uint outputIndex = globalPrefix[digit] + passPrefix + rank;
+      uint outputIndex = globalPrefix[digit] + passPrefix + localRank[lID];
       sortWriteKey(outputIndex, key);
       sortWriteVal(outputIndex, val);
    }

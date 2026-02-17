@@ -2,7 +2,7 @@
 #define RAYTRACE_INCLUDE_GUARD
 
 const int BVH_STACK_SIZE = 32;
-const float RT_INF = 1.0 / 0.0;
+const float RT_INF = 3.402823466e+38;
 
 struct TraceResult {
    float t;

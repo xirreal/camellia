@@ -1,6 +1,12 @@
 #version 460
 
+//#define ENABLE_QUAD_VALIDATION
+
+#ifdef ENABLE_QUAD_VALIDATION
 const ivec3 workGroups = ivec3(131072, 1, 1);
+#else
+const ivec3 workGroups = ivec3(1, 1, 1);
+#endif
 
 #include "/lib/storage.glsl"
 #include "/lib/hploc.glsl"
@@ -21,6 +27,7 @@ float triangleAreaSq(vec3 a, vec3 b, vec3 c) {
 }
 
 void main() {
+   #ifdef ENABLE_QUAD_VALIDATION
    uint gID = gl_GlobalInvocationID.x;
    uint numQuads = min(count >> 2u, MAX_QUAD_COUNT);
 
@@ -73,4 +80,7 @@ void main() {
    if (d01 < 1e-10 && d02 < 1e-10 && d03 < 1e-10) {
       atomicAdd(control.quadErrCollapsed, 1u);
    }
+   #else
+   return;
+   #endif
 }
