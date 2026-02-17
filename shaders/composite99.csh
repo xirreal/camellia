@@ -216,22 +216,6 @@ void main() {
    printUnsignedIntWithSeparators(control.quadErrCollapsed);
    printLine();
 
-   // Number of quads with only 2 vertices
-   text.fgCol = vec4(1.0);
-   printString((_2, _v, _colon));
-   text.fgCol = (control.realCount2 == 0u)
-      ? vec4(0.4, 1.0, 0.4, 1.0) : vec4(0.9, 0.2, 0.25, 1.0);
-   printUnsignedIntWithSeparators(control.realCount2);
-   printLine();
-
-   // Number of quads with only 1 vertex
-   text.fgCol = vec4(1.0);
-   printString((_1, _v, _colon));
-   text.fgCol = (control.realCount1 == 0u)
-      ? vec4(0.4, 1.0, 0.4, 1.0) : vec4(0.9, 0.2, 0.25, 1.0);
-   printUnsignedIntWithSeparators(control.realCount1);
-   printLine();
-
    endText(color);
 
    beginText(ivec2(coord * 0.25), ivec2(2, 10));

@@ -95,73 +95,21 @@ layout(std430, binding = 0) buffer VertexBuffer {
    Vertex vertices[];
 };
 
-struct VertexAlloc {
-   uint vertexId;
-   uint fillStartId;
-   uint fillCount;
-};
-
-VertexAlloc getVertexWriteIndex() {
-   VertexAlloc alloc;
-   alloc.vertexId = INVALID_ID;
-   alloc.fillStartId = INVALID_ID;
-   alloc.fillCount = 0;
-
+uint getVertexWriteIndex() {
    uvec4 activeMask = subgroupBallot(true);
    uint activeThreads = subgroupBallotBitCount(activeMask);
-   uint allocatedThreads = (activeThreads + 3u) & ~3u; // round up to 4
+   uint allocatedCount = (activeThreads + 3u) & ~3u; // this will be unnecessary eventually
 
-   uint baseVertexId = 0u;
+   uint baseVertexId = INVALID_ID;
    if (subgroupElect()) {
-      baseVertexId = atomicAdd(count, allocatedThreads);
+      baseVertexId = atomicAdd(count, allocatedCount);
    }
    baseVertexId = subgroupBroadcastFirst(baseVertexId);
 
-   uint localIndex = gl_SubgroupInvocationID;
+   uint lane = subgroupBallotExclusiveBitCount(activeMask);
 
-   if (baseVertexId + allocatedThreads > MAX_VERTEX_COUNT) {
-      return alloc;
-   }
-
-   // hole detected
-   if (localIndex < activeThreads) {
-      alloc.vertexId = baseVertexId + localIndex;
-
-      if (localIndex == activeThreads - 1u) {
-         uint numHoles = allocatedThreads - activeThreads;
-         if (numHoles > 0u) {
-            alloc.fillStartId = baseVertexId + activeThreads;
-            alloc.fillCount = numHoles;
-         }
-      }
-   }
-   return alloc;
-}
-
-void fillHoleVertices(VertexAlloc alloc, Vertex vertex) {
-   if (alloc.fillCount == 0) return;
-
-   vec3 v1pos = subgroupShuffleUp(vertex.position, 1);
-   vec3 v0pos = subgroupShuffleUp(vertex.position, 2);
-   vec2 v1uv = subgroupShuffleUp(vertex.uv, 1);
-   vec2 v0uv = subgroupShuffleUp(vertex.uv, 2);
-
-   uint writeIdx = alloc.fillStartId;
-   Vertex newVertex = vertex;
-
-   if (alloc.fillCount == 1u) {
-      newVertex.position = v0pos + vertex.position - v1pos;
-      newVertex.uv = v0uv + vertex.uv - v1uv;
-      newVertex.encodedNormal = vertex.encodedNormal;
-      newVertex.emission = vertex.emission;
-      newVertex._pad = 0.0;
-   } else if (alloc.fillCount == 2u) {
-      atomicAdd(control.realCount2, 1u);
-   } else if (alloc.fillCount == 3u) {
-      atomicAdd(control.realCount1, 1u);
-   }
-
-   vertices[writeIdx] = newVertex;
+   if (baseVertexId + activeThreads > MAX_VERTEX_COUNT) return INVALID_ID;
+   return baseVertexId + lane;
 }
 
 #else
