@@ -2,6 +2,7 @@
 
 const float voxelDistance = 256.0;
 const int shadowMapResolution = 32;
+const float sunPathRotation = -40.0;
 
 void main() {
    discard;

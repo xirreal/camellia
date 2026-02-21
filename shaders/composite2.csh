@@ -27,7 +27,10 @@ float triangleAreaSq(vec3 a, vec3 b, vec3 c) {
 }
 
 void main() {
-   #ifdef ENABLE_QUAD_VALIDATION
+   #infdef ENABLE_QUAD_VALIDATION
+   return;
+   #endif
+
    uint gID = gl_GlobalInvocationID.x;
    uint numQuads = min(count >> 2u, MAX_QUAD_COUNT);
 
@@ -80,7 +83,4 @@ void main() {
    if (d01 < 1e-10 && d02 < 1e-10 && d03 < 1e-10) {
       atomicAdd(control.quadErrCollapsed, 1u);
    }
-   #else
-   return;
-   #endif
 }

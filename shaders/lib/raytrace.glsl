@@ -1,6 +1,12 @@
 #ifndef RAYTRACE_INCLUDE_GUARD
 #define RAYTRACE_INCLUDE_GUARD
 
+#define ALPHA_TEST
+
+#ifdef ALPHA_TEST
+const float ALPHA_THRESHOLD = 0.5;
+#endif
+
 const int BVH_STACK_SIZE = 32;
 const float RT_INF = 3.402823466e+38;
 
@@ -8,8 +14,11 @@ struct TraceResult {
    float t;
    vec3 normal;
    bool hit;
-   uint depth;   // BVH depth at hit
-   uint quadID;  // quad index that was hit
+   uint depth; // BVH depth at hit
+   uint quadID; // quad index that was hit
+   vec2 uv; // interpolated texture coordinate at hit
+   vec4 vertexData; // decoded vertex data (rgb=color, a=emission)
+   uint blockID; // block ID at hit
 };
 
 vec3 safeInvDir(vec3 d) {
@@ -29,7 +38,7 @@ float intersectAABB(vec3 bMin, vec3 bMax, vec3 ro, vec3 invRd, float tMinRay, fl
    return (tmax >= tmin) ? tmin : RT_INF;
 }
 
-bool intersectTri(vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, out float t) {
+bool intersectTri(vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, out float t, out vec2 bary) {
    vec3 e1 = v1 - v0;
    vec3 e2 = v2 - v0;
    vec3 p = cross(rd, e2);
@@ -50,10 +59,11 @@ bool intersectTri(vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, out float t) {
    if (tt <= 0.0) return false;
 
    t = tt;
+   bary = vec2(u, v);
    return true;
 }
 
-bool intersectQuad(uint quadID, vec3 ro, vec3 rd, inout float tHit, out vec3 nHit) {
+bool intersectQuad(uint quadID, vec3 ro, vec3 rd, inout float tHit, out vec3 nHit, out vec2 hitUV, out vec4 hitVertexData, out uint hitBlockID, out uint hitTextureID) {
    Quad q = quads[quadID];
    vec3 p0 = q.v1.position;
    vec3 p1 = q.v2.position;
@@ -61,17 +71,28 @@ bool intersectQuad(uint quadID, vec3 ro, vec3 rd, inout float tHit, out vec3 nHi
    vec3 p3 = q.v4.position;
 
    float t;
+   vec2 bary;
    bool hit = false;
 
-   if (intersectTri(ro, rd, p0, p1, p2, t) && t < tHit) {
+   if (intersectTri(ro, rd, p0, p1, p2, t, bary) && t < tHit) {
       tHit = t;
       hit = true;
       nHit = normalize(cross(p1 - p0, p2 - p0));
+      // Interpolate UVs: v0*(1-u-v) + v1*u + v2*v
+      hitUV = q.v1.uv * (1.0 - bary.x - bary.y) + q.v2.uv * bary.x + q.v3.uv * bary.y;
+      hitVertexData = decodeVertexData(q.v1.encodedVertex);
+      hitBlockID = q.v1.blockID;
+      hitTextureID = q.v1.textureID;
    }
-   if (intersectTri(ro, rd, p0, p2, p3, t) && t < tHit) {
+   if (intersectTri(ro, rd, p0, p2, p3, t, bary) && t < tHit) {
       tHit = t;
       hit = true;
       nHit = normalize(cross(p2 - p0, p3 - p0));
+      // Interpolate UVs: v0*(1-u-v) + v2*u + v3*v
+      hitUV = q.v1.uv * (1.0 - bary.x - bary.y) + q.v3.uv * bary.x + q.v4.uv * bary.y;
+      hitVertexData = decodeVertexData(q.v1.encodedVertex);
+      hitBlockID = q.v1.blockID;
+      hitTextureID = q.v1.textureID;
    }
 
    if (hit && dot(nHit, rd) > 0.0) nHit = -nHit;
@@ -120,6 +141,9 @@ TraceResult traceBVH(vec3 ro, vec3 rd) {
    res.hit = false;
    res.depth = 0u;
    res.quadID = INVALID_ID;
+   res.uv = vec2(0.0);
+   res.vertexData = vec4(0.0);
+   res.blockID = 0u;
 
    uint rootID = control.rootClusterID;
    if (rootID == INVALID_ID) return res;
@@ -148,11 +172,28 @@ TraceResult traceBVH(vec3 ro, vec3 rd) {
          // Leaf node - bounds check the quad index
          if (prim < numQuads) {
             vec3 nHit;
-            if (intersectQuad(prim, ro, rd, res.t, nHit)) {
-               res.normal = nHit;
-               res.hit = true;
-               res.depth = steps;
-               res.quadID = prim;
+            vec2 hitUV;
+            vec4 hitVD;
+            uint hitBID;
+            uint hitTextureID;
+            #ifdef ALPHA_TEST
+            float prevT = res.t;
+            #endif
+            if (intersectQuad(prim, ro, rd, res.t, nHit, hitUV, hitVD, hitBID, hitTextureID)) {
+               #ifdef ALPHA_TEST
+               if (hitTextureID == 0 && texture(blockAtlas, hitUV).a < ALPHA_THRESHOLD) {
+                  res.t = prevT;
+               } else
+               #endif
+               {
+                  res.normal = nHit;
+                  res.hit = true;
+                  res.depth = steps;
+                  res.quadID = prim;
+                  res.uv = hitUV;
+                  res.vertexData = hitVD;
+                  res.blockID = hitBID;
+               }
             }
          }
          nodeID = INVALID_ID;
@@ -201,6 +242,98 @@ TraceResult traceBVH(vec3 ro, vec3 rd) {
    return res;
 }
 
+bool traceShadow(vec3 ro, vec3 rd, float maxDist) {
+   uint rootID = control.rootClusterID;
+   if (rootID == INVALID_ID) return false;
+
+   vec3 invRd = safeInvDir(rd);
+
+   uint stack[BVH_STACK_SIZE];
+   int sp = 0;
+
+   uint nodeID = rootID;
+   uint numQuads = control.sortTotal;
+
+   for (int iter = 0; iter < 512; iter++) {
+      if (nodeID == INVALID_ID) {
+         if (sp == 0) break;
+         --sp;
+         nodeID = stack[sp];
+         continue;
+      }
+
+      uint prim = getClusterPrimID(nodeID);
+
+      if (!isInternalNode(nodeID)) {
+         if (prim < numQuads) {
+            Quad q = quads[prim];
+            vec3 p0 = q.v1.position;
+            vec3 p1 = q.v2.position;
+            vec3 p2 = q.v3.position;
+            vec3 p3 = q.v4.position;
+
+            float t;
+            vec2 bary;
+            if (intersectTri(ro, rd, p0, p1, p2, t, bary) && t < maxDist) {
+               #ifdef ALPHA_TEST
+               if (q.v1.textureID != 0 || texture(blockAtlas, q.v1.uv * (1.0 - bary.x - bary.y) + q.v2.uv * bary.x + q.v3.uv * bary.y).a >= ALPHA_THRESHOLD) return true;
+               #else
+               return true;
+               #endif
+            }
+            if (intersectTri(ro, rd, p0, p2, p3, t, bary) && t < maxDist) {
+               #ifdef ALPHA_TEST
+               if (q.v1.textureID != 0 || texture(blockAtlas, q.v1.uv * (1.0 - bary.x - bary.y) + q.v3.uv * bary.x + q.v4.uv * bary.y).a >= ALPHA_THRESHOLD) return true;
+               #else
+               return true;
+               #endif
+            }
+         }
+         nodeID = INVALID_ID;
+         continue;
+      }
+
+      if (prim >= control.numBVH2Nodes) {
+         nodeID = INVALID_ID;
+         continue;
+      }
+
+      BVH2Node node = bvh2Nodes[prim];
+      uint c0 = node.leftChild;
+      uint c1 = node.rightChild;
+
+      vec3 b0min, b0max, b1min, b1max;
+      loadChildAABB(c0, numQuads, b0min, b0max);
+      loadChildAABB(c1, numQuads, b1min, b1max);
+
+      float t0 = intersectAABB(b0min, b0max, ro, invRd, 0.0, maxDist);
+      float t1 = intersectAABB(b1min, b1max, ro, invRd, 0.0, maxDist);
+
+      bool h0 = (t0 != RT_INF);
+      bool h1 = (t1 != RT_INF);
+
+      if (h0 && h1) {
+         bool leftFirst = (t0 <= t1);
+         uint nearID = leftFirst ? c0 : c1;
+         uint farID = leftFirst ? c1 : c0;
+
+         if (sp < BVH_STACK_SIZE) {
+            stack[sp] = farID;
+            sp++;
+         }
+         nodeID = nearID;
+      } else if (h0) {
+         nodeID = c0;
+      } else if (h1) {
+         nodeID = c1;
+      } else {
+         nodeID = INVALID_ID;
+      }
+   }
+
+   return false;
+}
+
 // Debug: trace BVH and return box color based on AABB surface area of first hit
 vec4 traceBVHDebugBoxes(vec3 ro, vec3 rd) {
    uint rootID = control.rootClusterID;
@@ -215,7 +348,7 @@ vec4 traceBVHDebugBoxes(vec3 ro, vec3 rd) {
 
    uint nodeID = rootID;
    float closestT = maxT;
-   float closestSA = 0.0;  // surface area of the closest-hit AABB
+   float closestSA = 0.0; // surface area of the closest-hit AABB
    bool anyHit = false;
 
    for (int iter = 0; iter < 512; iter++) {

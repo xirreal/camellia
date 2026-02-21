@@ -8,6 +8,7 @@ layout(rgba8) uniform writeonly image2D colorimg0;
 
 uniform sampler2D colortex0;
 uniform sampler2D colortex1;
+uniform sampler2D colortex2;
 uniform float viewWidth;
 uniform float viewHeight;
 
@@ -24,21 +25,9 @@ void main() {
 
    if (coord.x >= int(viewWidth) || coord.y >= int(viewHeight)) return;
 
-   #ifdef ENABLE_DEBUG_OVERLAY
-   int halfWidth = int(viewWidth) / 2;
-   vec3 color;
+   vec3 color = texture(colortex1, vec2(coord + 0.5) / vec2(viewWidth, viewHeight)).rgb;
 
-   if (coord.x < halfWidth) {
-      color = texelFetch(colortex0, coord, 0).rgb;
-   } else {
-      vec4 rtData = texelFetch(colortex1, coord, 0);
-      if (rtData.a > 0.0) {
-         color = rtData.rgb;
-      } else {
-         vec2 uv = vec2(coord) / vec2(viewWidth, viewHeight);
-         color = vec3(uv.x * 0.05, uv.y * 0.05, 0.08);
-      }
-   }
+   #ifdef ENABLE_DEBUG_OVERLAY
 
    beginText(ivec2(coord * 0.25), ivec2(2, int(viewHeight * 0.25) - 1));
    text.bgCol = vec4(0.0, 0.0, 0.0, 0.7);
@@ -221,28 +210,7 @@ void main() {
 
    endText(color);
 
-   beginText(ivec2(coord * 0.25), ivec2(2, 10));
-   text.bgCol = vec4(0.0, 0.0, 0.0, 0.7);
-
-   printString((_G, _b, _f, _u, _f, _f, _e, _r));
-
-   endText(color);
-
-   beginText(ivec2(coord * 0.25), ivec2(viewWidth * 0.25 * 0.5 + 3, 10));
-   text.bgCol = vec4(0.0, 0.0, 0.0, 0.7);
-
-   printString((_R, _T));
-
-   endText(color);
-
-   // Divider line
-   if (abs(coord.x - halfWidth) <= 1) {
-      color = vec3(1.0);
-   }
-
-   imageStore(colorimg0, coord, vec4(color, 1.0));
-   #else
-   vec3 color = texelFetch(colortex1, coord, 0).rgb;
-   imageStore(colorimg0, coord, vec4(color, 1.0));
    #endif
+
+   imageStore(colorimg0, coord, vec4(color, 1.0));
 }

@@ -38,11 +38,11 @@ uint encodeMorton3D(vec3 normalizedPos) {
 
 struct Vertex {
    vec3 position;
-   uint encodedNormal;
+   uint encodedVertex;
    vec2 uv;
-   float emission;
-   float _pad;
-}; // 32 bytes (explicit padding for std430 array stride)
+   uint blockID;
+   uint textureID;
+}; // pad to 32 bytes, should make loads better than 28
 
 const uint MAX_VERTEX_COUNT = 33554432u;
 const uint MAX_QUAD_COUNT = MAX_VERTEX_COUNT / 4u;

@@ -6,16 +6,18 @@ in vec3 normal;
 
 uniform sampler2D gtexture;
 uniform mat4 gbufferModelViewInverse;
+uniform float alphaTestRef;
 
-/* RENDERTARGETS: 0 */
-out vec4 fragColor;
+/* RENDERTARGETS: 1,2 */
+layout(location = 0) out vec4 albedoOut;
+layout(location = 1) out vec4 normalsOut;
 
 void main() {
-   vec4 alberto = texture(gtexture, texcoord);
-   // if (alberto.a < 0.1) {
-   //    discard;
-   // }
+   vec4 albedo = texture(gtexture, texcoord) * vec4(tint, 1.0);
+   if (albedo.a < alphaTestRef) {
+      discard;
+   }
 
-   fragColor = alberto * vec4(tint, 1.0);
-   fragColor = vec4((mat3(gbufferModelViewInverse) * normal) * 0.5 + 0.5, 1.0);
+   albedoOut = albedo;
+   normalsOut = vec4((mat3(gbufferModelViewInverse) * normal) * 0.5 + 0.5, 1.0);
 }

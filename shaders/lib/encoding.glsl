@@ -27,4 +27,12 @@ vec3 decodeNormal(uint packedNormal) {
    return normalize(n);
 }
 
+uint encodeVertexData(vec3 color, float emission) {
+   return packUnorm4x8(vec4(color, emission));
+}
+
+vec4 decodeVertexData(uint packedVertexData) {
+   return unpackUnorm4x8(packedVertexData);
+}
+
 #endif

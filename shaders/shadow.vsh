@@ -4,6 +4,7 @@ in vec2 mc_Entity;
 in vec4 at_midBlock;
 
 uniform mat4 shadowModelViewInverse;
+uniform int renderStage;
 
 #define AS_VERTEX
 #include "/lib/storage.glsl"
@@ -16,10 +17,15 @@ void main() {
    vec3 playerSpacePos = (shadowModelViewInverse * vec4(shadowViewSpacePos, 1.0)).xyz;
 
    vec2 coord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
-   vec3 normal = normalize(mat3(shadowModelViewInverse) * gl_NormalMatrix * gl_Normal);
+   vec3 color = gl_Color.rgb;
    float emission = at_midBlock.w;
 
-   Vertex vertex = Vertex(playerSpacePos, encodeNormal(normal), coord, emission, 0.0);
+   uint textureID = -1;
+   if (renderStage == MC_RENDER_STAGE_TERRAIN_SOLID) {
+      textureID = 0;
+   }
+
+   Vertex vertex = Vertex(playerSpacePos, encodeVertexData(color, emission), coord, uint(mc_Entity.x), textureID);
 
    uint vertexId = getVertexWriteIndex();
 
