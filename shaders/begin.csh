@@ -2,6 +2,7 @@
 
 #define AS_VERTEX
 #include "/lib/storage.glsl"
+#include "/lib/textures.glsl"
 
 const ivec3 workGroups = ivec3(1, 1, 1);
 
@@ -42,4 +43,6 @@ void main() {
 
    control.realCount1 = 0u;
    control.realCount2 = 0u;
+
+   control.textureCollisions = 0u;
 }

@@ -1,6 +1,8 @@
 #ifndef RAYTRACE_INCLUDE_GUARD
 #define RAYTRACE_INCLUDE_GUARD
 
+#include "/lib/textures.glsl"
+
 #define ALPHA_TEST
 
 #ifdef ALPHA_TEST
@@ -19,6 +21,7 @@ struct TraceResult {
    vec2 uv; // interpolated texture coordinate at hit
    vec4 vertexData; // decoded vertex data (rgb=color, a=emission)
    uint blockID; // block ID at hit
+   uint textureID; // 0 = block atlas, >0 = entity texture slot+1
 };
 
 vec3 safeInvDir(vec3 d) {
@@ -144,6 +147,7 @@ TraceResult traceBVH(vec3 ro, vec3 rd) {
    res.uv = vec2(0.0);
    res.vertexData = vec4(0.0);
    res.blockID = 0u;
+   res.textureID = 0u;
 
    uint rootID = control.rootClusterID;
    if (rootID == INVALID_ID) return res;
@@ -181,7 +185,16 @@ TraceResult traceBVH(vec3 ro, vec3 rd) {
             #endif
             if (intersectQuad(prim, ro, rd, res.t, nHit, hitUV, hitVD, hitBID, hitTextureID)) {
                #ifdef ALPHA_TEST
-               if (hitTextureID == 0 && texture(blockAtlas, hitUV).a < ALPHA_THRESHOLD) {
+               bool transparent = false;
+               if (hitTextureID == 0u) {
+                  transparent = texture(blockAtlas, hitUV).a < ALPHA_THRESHOLD;
+               }
+               #ifdef ENTITY_TEXTURES
+               else {
+                  transparent = sampleEntityTexture(hitTextureID, hitUV).a < ALPHA_THRESHOLD;
+               }
+               #endif
+               if (transparent) {
                   res.t = prevT;
                } else
                #endif
@@ -193,6 +206,7 @@ TraceResult traceBVH(vec3 ro, vec3 rd) {
                   res.uv = hitUV;
                   res.vertexData = hitVD;
                   res.blockID = hitBID;
+                  res.textureID = hitTextureID;
                }
             }
          }
@@ -276,14 +290,33 @@ bool traceShadow(vec3 ro, vec3 rd, float maxDist) {
             vec2 bary;
             if (intersectTri(ro, rd, p0, p1, p2, t, bary) && t < maxDist) {
                #ifdef ALPHA_TEST
-               if (q.v1.textureID != 0 || texture(blockAtlas, q.v1.uv * (1.0 - bary.x - bary.y) + q.v2.uv * bary.x + q.v3.uv * bary.y).a >= ALPHA_THRESHOLD) return true;
+               vec2 hitUV = q.v1.uv * (1.0 - bary.x - bary.y) + q.v2.uv * bary.x + q.v3.uv * bary.y;
+               if (q.v1.textureID == 0u) {
+                  if (texture(blockAtlas, hitUV).a >= ALPHA_THRESHOLD) return true;
+               }
+               else {
+                  #ifdef ENTITY_TEXTURES
+                  if (sampleEntityTexture(q.v1.textureID, hitUV).a >= ALPHA_THRESHOLD) return true;
+                  #else
+                  return true;
+                  #endif
+               }
                #else
                return true;
                #endif
             }
             if (intersectTri(ro, rd, p0, p2, p3, t, bary) && t < maxDist) {
                #ifdef ALPHA_TEST
-               if (q.v1.textureID != 0 || texture(blockAtlas, q.v1.uv * (1.0 - bary.x - bary.y) + q.v3.uv * bary.x + q.v4.uv * bary.y).a >= ALPHA_THRESHOLD) return true;
+               vec2 hitUV = q.v1.uv * (1.0 - bary.x - bary.y) + q.v3.uv * bary.x + q.v4.uv * bary.y;
+               if (q.v1.textureID == 0u) {
+                  if (texture(blockAtlas, hitUV).a >= ALPHA_THRESHOLD) return true;
+               } else {
+                  #ifdef ENTITY_TEXTURES
+                  if (sampleEntityTexture(q.v1.textureID, hitUV).a >= ALPHA_THRESHOLD) return true;
+                  #else
+                  return true;
+                  #endif
+               }
                #else
                return true;
                #endif

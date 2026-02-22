@@ -1,6 +1,9 @@
 #version 460
 
 //#define ENABLE_DEBUG_OVERLAY
+//#define ENABLE_SORT_VALIDATION
+//#define ENABLE_QUAD_VALIDATION
+//#define ENTITY_TEXTURES_DEBUG
 
 layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 
@@ -72,6 +75,40 @@ void main() {
    printString((_clprn));
    printLine();
 
+   #ifdef ENTITY_TEXTURES_DEBUG
+   printLine();
+   float texFullness = float(control.textureEntries) / float(MAX_TEXTURES);
+
+   text.fgCol = vec4(1.0);
+   printString((_T, _e, _x, _t, _u, _r, _e, _s, _colon));
+   text.fgCol = vec4(gradient(texFullness), 1.0);
+   printUnsignedIntWithSeparators(control.textureEntries);
+   printString((_slash));
+   printUnsignedIntWithSeparators(MAX_TEXTURES);
+   printLine();
+
+   text.fgCol = vec4(1.0);
+   printString((_T, _e, _x, _space, _D, _a, _t, _a, _colon));
+   float dataFullness = float(textureDataOffset) / float(MAX_TEXTURE_DATA);
+   text.fgCol = vec4(gradient(dataFullness), 1.0);
+   printUnsignedIntWithSeparators(textureDataOffset);
+   printString((_slash));
+   printUnsignedIntWithSeparators(MAX_TEXTURE_DATA);
+   printLine();
+
+   text.fgCol = vec4(1.0);
+   printString((_C, _o, _l, _l, _i, _s, _i, _o, _n, _s, _colon));
+   text.fgCol = (control.textureCollisions == 0u)
+      ? vec4(0.4, 1.0, 0.4, 1.0) : vec4(0.9, 0.6, 0.1, 1.0);
+   printUnsignedIntWithSeparators(control.textureCollisions);
+   printLine();
+
+   text.fgCol = vec4(1.0);
+   printBar(texFullness, 300, vec3(0.4, 1.0, 0.4), vec3(0.9, 0.2, 0.25));
+   printLine();
+   #endif
+
+   #ifdef ENABLE_SORT_VALIDATION
    // Sort validation
    printLine();
    text.fgCol = vec4(1.0);
@@ -125,7 +162,9 @@ void main() {
       printLine();
    }
    printLine();
+   #endif
 
+   #ifdef ENABLE_QUAD_VALIDATION
    // Build error
    printLine();
    text.fgCol = vec4(1.0);
@@ -142,7 +181,6 @@ void main() {
       text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
       printString((_n, _o, _n, _e));
    }
-   printLine();
 
    // BVH root
    printLine();
@@ -207,6 +245,7 @@ void main() {
       ? vec4(0.4, 1.0, 0.4, 1.0) : vec4(0.9, 0.2, 0.25, 1.0);
    printUnsignedIntWithSeparators(control.quadErrCollapsed);
    printLine();
+   #endif
 
    endText(color);
 

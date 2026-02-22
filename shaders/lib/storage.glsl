@@ -86,11 +86,23 @@ layout(std430, binding = 1) buffer ControlBuffer {
    uint quadErrCollapsed; // 88
    uint realCount1; // 92
    uint realCount2; // 96
+   uint textureEntries; // 100
+   uint textureCollisions; // 104
 } control;
+
+const uint MAX_TEXTURES = 65536u;
+const uint MAX_TEXTURE_DATA = 268435456u; // 1GiB of total data
+
+struct TextureInfo {
+   uint key;
+   uint baseOffset;
+   uint sizeX;
+   uint sizeY;
+};
 
 #ifdef AS_VERTEX
 
-layout(std430, binding = 0) buffer VertexBuffer {
+layout(std430, binding = 0) restrict buffer VertexBuffer {
    uint count;
    Vertex vertices[];
 };
@@ -112,6 +124,15 @@ uint getVertexWriteIndex() {
    return baseVertexId + lane;
 }
 
+layout(std430, binding = 8) restrict buffer TextureInfosBuffer {
+   uint textureDataOffset;
+   TextureInfo textureMap[];
+};
+
+layout(std430, binding = 9) restrict buffer TextureDataBuffer {
+   uint textureData[];
+};
+
 #else
 
 struct Quad {
@@ -121,9 +142,18 @@ struct Quad {
    Vertex v4;
 }; // 128 bytes
 
-layout(std430, binding = 0) readonly buffer QuadBuffer {
+layout(std430, binding = 0) restrict readonly buffer QuadBuffer {
    uint count;
    Quad quads[];
+};
+
+layout(std430, binding = 8) restrict readonly buffer TextureInfosBuffer {
+   uint textureDataOffset;
+   TextureInfo textureMap[];
+};
+
+layout(std430, binding = 9) restrict readonly buffer TextureDataBuffer {
+   uint textureData[];
 };
 
 #endif

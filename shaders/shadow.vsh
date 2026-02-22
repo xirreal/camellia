@@ -5,10 +5,12 @@ in vec4 at_midBlock;
 
 uniform mat4 shadowModelViewInverse;
 uniform int renderStage;
+uniform sampler2D gtexture;
 
 #define AS_VERTEX
 #include "/lib/storage.glsl"
 #include "/lib/encoding.glsl"
+#include "/lib/textures.glsl"
 
 void main() {
    gl_Position = vec4(vec3(11.0), 1.0);
@@ -20,9 +22,31 @@ void main() {
    vec3 color = gl_Color.rgb;
    float emission = at_midBlock.w;
 
-   uint textureID = -1;
-   if (renderStage == MC_RENDER_STAGE_TERRAIN_SOLID) {
-      textureID = 0;
+   uint textureID = 0; // solid blocks get id 0
+   if (renderStage == MC_RENDER_STAGE_ENTITIES || renderStage == MC_RENDER_STAGE_BLOCK_ENTITIES) {
+      #ifdef ENTITY_TEXTURES
+
+      uint h = computeTextureHash(gtexture);
+      ivec2 tSize = textureSize(gtexture, 0);
+
+      bool isNew = false;
+      uint slot = INVALID_ID;
+
+      if (subgroupElect()) {
+         slot = textureMapInsert(h, tSize, isNew);
+      }
+
+      slot = subgroupBroadcastFirst(slot);
+      isNew = subgroupBroadcastFirst(isNew);
+
+      if (isNew && slot != INVALID_ID) {
+         copyTexture(textureMap[slot].baseOffset, tSize, gtexture);
+      }
+
+      textureID = (slot == INVALID_ID) ? 0 : slot + 1u;
+      #else
+      textureID = 1; // sentinel to disable alpha testing in rt loop
+      #endif
    }
 
    Vertex vertex = Vertex(playerSpacePos, encodeVertexData(color, emission), coord, uint(mc_Entity.x), textureID);
