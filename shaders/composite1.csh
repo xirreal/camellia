@@ -23,6 +23,13 @@ uniform float near;
 const float SHADOW_BIAS = 0.01;
 const float SHADOW_MAX_DIST = 64.0;
 
+float hash12(vec2 p)
+{
+   vec3 p3 = fract(vec3(p.xyx) * .1031);
+   p3 += dot(p3, p3.yzx + 33.33);
+   return fract((p3.x + p3.y) * p3.z);
+}
+
 void main() {
    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
    if (coord.x >= int(viewWidth) || coord.y >= int(viewHeight)) return;
@@ -81,7 +88,32 @@ void main() {
    if (NdotL > 0.0) {
       vec3 hitPos = ro + rd * hit.t;
       vec3 shadowOrigin = hitPos + hit.normal * SHADOW_BIAS;
-      shadow = traceShadow(shadowOrigin, lightDir, SHADOW_MAX_DIST) ? 0.0 : 1.0;
+
+      int NUM_SAMPLES = 1;
+      float lightSpread = 0.03;
+      float shadowAccum = 0.0;
+
+      vec3 up = abs(lightDir.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+      vec3 tangent = normalize(cross(up, lightDir));
+      vec3 bitangent = cross(lightDir, tangent);
+
+      float seed = fract(sin(dot(hitPos.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.283185;
+
+      for (int i = 0; i < NUM_SAMPLES; i++) {
+         float r = sqrt((float(i) + 0.5) / float(NUM_SAMPLES));
+         float theta = float(i) * 2.3999632 + seed;
+
+         vec2 diskPos = vec2(r * cos(theta), r * sin(theta));
+
+         vec3 sampleDir = normalize(lightDir + (tangent * diskPos.x + bitangent * diskPos.y) * lightSpread);
+
+         if (dot(hit.normal, sampleDir) > 0.0) {
+            float rayLit = traceShadow(shadowOrigin, sampleDir, SHADOW_MAX_DIST) ? 0.0 : 1.0;
+            shadowAccum += rayLit;
+         }
+      }
+
+      shadow = shadowAccum / float(NUM_SAMPLES);
    }
 
    float lighting = max(NdotL * shadow, 0.05) + 0.2;
