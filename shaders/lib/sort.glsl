@@ -1,6 +1,9 @@
 #ifndef SORT_INCLUDE_GUARD
 #define SORT_INCLUDE_GUARD
 
+// Max possible subgroups in a sort workgroup (handles subgroup sizes down to 8)
+#define SORT_MAX_SUBGROUPS (SORT_WG_SIZE / 8u)
+
 uint sortGetN() {
    return control.sortTotal;
 }
@@ -33,11 +36,11 @@ void sortWriteVal(uint index, uint val) {
    else clusterIndices[index] = val;
 }
 
-// upsweep (histogram build)
+// upsweep (histogram build) - subgroup ballot based, no shared atomics
 
 #if SORT_PHASE == 0
 
-shared uint localHist[RADIX];
+shared uint subgroupHist[SORT_MAX_SUBGROUPS * RADIX];
 
 void sortUpsweep() {
    uint gID = gl_GlobalInvocationID.x;
@@ -48,28 +51,47 @@ void sortUpsweep() {
 
    if (wgID >= numWG) return;
 
-   if (lID < RADIX) localHist[lID] = 0u;
-   barrier();
+   uint subgroupID = lID / gl_SubgroupSize;
+   uint numSubgroups = SORT_WG_SIZE / gl_SubgroupSize;
 
-   if (gID < N) {
-      uint key = sortReadKey(gID);
-      uint digit = sortExtractDigit(key);
-      atomicAdd(localHist[digit], 1u);
+   // Clear per-subgroup histograms
+   for (uint i = lID; i < numSubgroups * RADIX; i += SORT_WG_SIZE) {
+      subgroupHist[i] = 0u;
    }
    barrier();
 
+   uint digit = RADIX;
+   if (gID < N) {
+      digit = sortExtractDigit(sortReadKey(gID));
+   }
+
+   // Per-subgroup histogram via ballot
+   for (uint d = 0u; d < RADIX; d++) {
+      uvec4 mask = subgroupBallot(digit == d);
+      if (subgroupElect()) {
+         subgroupHist[subgroupID * RADIX + d] = subgroupBallotBitCount(mask);
+      }
+   }
+   barrier();
+
+   // Merge subgroup histograms
    if (lID < RADIX) {
-      sortScratch[SORT_SCRATCH_PASS_HIST + lID * SORT_MAX_WORKGROUPS + wgID] = localHist[lID];
+      uint sum = 0u;
+      for (uint s = 0u; s < numSubgroups; s++) {
+         sum += subgroupHist[s * RADIX + lID];
+      }
+      sortScratch[SORT_SCRATCH_PASS_HIST + lID * SORT_MAX_WORKGROUPS + wgID] = sum;
    }
 }
 
 #endif
 
-// radix scan (exclusive prefix sum of histograms)
+// radix scan (exclusive prefix sum of histograms) - subgroup accelerated
 
 #if SORT_PHASE == 1
 
-shared uint scanTemp[SORT_WG_SIZE];
+shared uint subgroupTotals[SORT_MAX_SUBGROUPS];
+shared uint chunkTotal;
 
 void sortScan() {
    uint lID = gl_LocalInvocationID.x;
@@ -80,6 +102,8 @@ void sortScan() {
    uint N = sortGetN();
    uint numWG = (N + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
    uint baseOffset = SORT_SCRATCH_PASS_HIST + digitBucket * SORT_MAX_WORKGROUPS;
+   uint subgroupID = lID / gl_SubgroupSize;
+   uint numSubgroups = SORT_WG_SIZE / gl_SubgroupSize;
 
    uint runningSum = 0u;
 
@@ -87,25 +111,35 @@ void sortScan() {
       uint idx = chunkStart + lID;
       uint val = (idx < numWG) ? sortScratch[baseOffset + idx] : 0u;
 
-      scanTemp[lID] = val;
+      // Subgroup-level exclusive prefix sum
+      uint subExcl = subgroupExclusiveAdd(val);
+      uint subTotal = subgroupAdd(val);
+
+      if (subgroupElect()) {
+         subgroupTotals[subgroupID] = subTotal;
+      }
       barrier();
 
-      for (uint stride = 1u; stride < SORT_WG_SIZE; stride <<= 1u) {
-         uint temp = (lID >= stride) ? scanTemp[lID - stride] : 0u;
-         barrier();
-         scanTemp[lID] += temp;
-         barrier();
+      // Serial exclusive scan of subgroup totals
+      if (lID == 0u) {
+         uint sum = 0u;
+         for (uint s = 0u; s < numSubgroups; s++) {
+            uint t = subgroupTotals[s];
+            subgroupTotals[s] = sum;
+            sum += t;
+         }
+         chunkTotal = sum;
       }
+      barrier();
 
-      uint inclusive = scanTemp[lID];
-      uint exclusive = inclusive - val;
+      // Final exclusive prefix = running + cross-subgroup offset + intra-subgroup prefix
+      uint exclusive = runningSum + subgroupTotals[subgroupID] + subExcl;
 
       if (idx < numWG) {
-         sortScratch[baseOffset + idx] = exclusive + runningSum;
+         sortScratch[baseOffset + idx] = exclusive;
       }
 
-      barrier();
-      runningSum += scanTemp[SORT_WG_SIZE - 1u];
+      runningSum += chunkTotal;
       barrier();
    }
 
@@ -116,14 +150,12 @@ void sortScan() {
 
 #endif
 
-// downsweep (scatter to output)
+// downsweep (scatter to output) - subgroup ballot ranking
 
 #if SORT_PHASE == 2
 
-shared uint localDigits[SORT_WG_SIZE];
 shared uint globalPrefix[RADIX];
-shared uint scanTemp[SORT_WG_SIZE];
-shared uint localRank[SORT_WG_SIZE];
+shared uint subgroupDigitCount[SORT_MAX_SUBGROUPS * RADIX];
 
 void sortDownsweep() {
    uint gID = gl_GlobalInvocationID.x;
@@ -134,6 +166,9 @@ void sortDownsweep() {
 
    if (wgID >= numWG) return;
 
+   uint subgroupID = lID / gl_SubgroupSize;
+
+   // Compute global digit prefix (exclusive scan of digit totals)
    if (lID < RADIX) {
       uint sum = 0u;
       for (uint d = 0u; d < lID; d++) {
@@ -152,35 +187,31 @@ void sortDownsweep() {
    }
 
    uint digit = valid ? sortExtractDigit(key) : RADIX;
-   localDigits[lID] = digit;
-   localRank[lID] = 0u;
+
+   // Compute rank within subgroup and per-subgroup digit counts via ballot
+   uint rankInSubgroup = 0u;
+   for (uint d = 0u; d < RADIX; d++) {
+      uvec4 mask = subgroupBallot(digit == d);
+      if (subgroupElect()) {
+         subgroupDigitCount[subgroupID * RADIX + d] = subgroupBallotBitCount(mask);
+      }
+      if (digit == d) {
+         rankInSubgroup = subgroupBallotExclusiveBitCount(mask);
+      }
+   }
    barrier();
 
-   for (uint d = 0u; d < RADIX; d++) {
-      uint flag = (digit == d) ? 1u : 0u;
-      scanTemp[lID] = flag;
-      barrier();
-
-      for (uint stride = 1u; stride < SORT_WG_SIZE; stride <<= 1u) {
-         uint temp = (lID >= stride) ? scanTemp[lID - stride] : 0u;
-         barrier();
-         scanTemp[lID] += temp;
-         barrier();
-      }
-
-      uint inclusive = scanTemp[lID];
-      uint exclusive = inclusive - flag;
-
-      if (digit == d) {
-         localRank[lID] = exclusive;
-      }
-
-      barrier();
-   }
-
+   // Scatter elements to sorted positions
    if (valid) {
+      // Sum digit counts from all prior subgroups
+      uint priorCount = 0u;
+      for (uint s = 0u; s < subgroupID; s++) {
+         priorCount += subgroupDigitCount[s * RADIX + digit];
+      }
+
+      uint localRank = priorCount + rankInSubgroup;
       uint passPrefix = sortScratch[SORT_SCRATCH_PASS_HIST + digit * SORT_MAX_WORKGROUPS + wgID];
-      uint outputIndex = globalPrefix[digit] + passPrefix + localRank[lID];
+      uint outputIndex = globalPrefix[digit] + passPrefix + localRank;
       sortWriteKey(outputIndex, key);
       sortWriteVal(outputIndex, val);
    }
