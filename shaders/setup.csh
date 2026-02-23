@@ -3,15 +3,17 @@
 #define AS_VERTEX
 #include "/lib/storage.glsl"
 #include "/lib/textures.glsl"
+const ivec3 workGroups = ivec3(256, 1, 1);
 
-const ivec3 workGroups = ivec3(1, 1, 1);
-
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 void main() {
-   control.textureEntries = 0u;
-   textureDataOffset = 0u;
-   for (uint i = 0u; i < MAX_TEXTURES; i++) {
-      textureMap[i].key = 0u;
+   uint id = gl_GlobalInvocationID.x;
+   if (id == 0u) {
+      control.textureEntries = 0u;
+      textureDataOffset = 0u;
+   }
+   if (id < MAX_TEXTURES) {
+      textureMap[id].key = 0u;
    }
 }

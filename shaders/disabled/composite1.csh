@@ -2,7 +2,7 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(rgba8) uniform writeonly image2D colorimg1;
+layout(rgba16f) uniform writeonly image2D colorimg1;
 
 uniform float viewWidth;
 uniform float viewHeight;
@@ -10,86 +10,64 @@ uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelViewInverse;
 uniform vec3 shadowLightPosition;
 
+uniform sampler2D colortex1;
+uniform sampler2D colortex2;
+uniform sampler2D depthtex0;
+uniform sampler2D blockAtlas;
+
+uniform float near;
+
 #include "/lib/storage.glsl"
 #include "/lib/hploc.glsl"
 #include "/lib/encoding.glsl"
 #include "/lib/raytrace.glsl"
 
-// 0 = normal shading, 1 = BVH depth heatmap, 2 = BVH box wireframes
-#define RT_DEBUG_MODE 0 // [0 1 2]
+const float SHADOW_BIAS_NEAR = 0.005;
+const float SHADOW_BIAS_FAR = 0.1;
+const float SHADOW_MAX_DIST = 64.0;
 
-const float SHADOW_BIAS = 0.01;
-const float SHADOW_MAX_DIST = 128.0;
+float linearizeDepth(float depth) {
+   return (near * far) / (depth * (near - far) + far);
+}
 
 void main() {
    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
    if (coord.x >= int(viewWidth) || coord.y >= int(viewHeight)) return;
 
    vec2 uv = (vec2(coord) + 0.5) / vec2(viewWidth, viewHeight);
-   vec2 ndc = uv * 2.0 - 1.0;
 
-   vec4 clipPos = vec4(ndc, -1.0, 1.0);
+   // Read gbuffer data
+   vec4 albedo = texture(colortex1, uv);
+   vec3 normal = texture(colortex2, uv).rgb * 2.0 - 1.0;
+   float depth = texture(depthtex0, uv).r;
+
+   // Skip sky pixels
+   if (depth >= 1.0) {
+      imageStore(colorimg1, coord, vec4(0.0));
+      return;
+   }
+
+   // Reconstruct world-space position from depth
+   vec2 ndc = uv * 2.0 - 1.0;
+   vec4 clipPos = vec4(ndc, depth * 2.0 - 1.0, 1.0);
    vec4 viewPos = gbufferProjectionInverse * clipPos;
    viewPos /= viewPos.w;
-
-   vec3 viewDir = normalize(viewPos.xyz);
-   vec3 worldDir = normalize((gbufferModelViewInverse * vec4(viewDir, 0.0)).xyz);
-   vec3 worldOrigin = (gbufferModelViewInverse * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+   vec3 worldPos = (gbufferModelViewInverse * viewPos).xyz;
 
    // Sun/moon direction in player space
-   vec3 lightDir = normalize((gbufferModelViewInverse * vec4(shadowLightPosition, 0.0)).xyz);
+   vec3 lightDir = normalize((gbufferModelViewInverse * vec4(0.01 * shadowLightPosition, 0.0)).xyz);
 
-   vec4 outColor;
+   float shadowBias = mix(SHADOW_BIAS_NEAR, SHADOW_BIAS_FAR, linearizeDepth(depth) / far);
 
-   #if RT_DEBUG_MODE == 1
-   TraceResult result = traceBVH(worldOrigin, worldDir);
-   if (result.hit) {
-      float costNorm = clamp(float(result.depth) / 64.0, 0.0, 1.0);
-      vec3 heatmap;
-      if (costNorm < 0.33) {
-         heatmap = mix(vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 0.0), costNorm * 3.0);
-      } else if (costNorm < 0.66) {
-         heatmap = mix(vec3(0.0, 1.0, 0.0), vec3(1.0, 1.0, 0.0), (costNorm - 0.33) * 3.0);
-      } else {
-         heatmap = mix(vec3(1.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), (costNorm - 0.66) * 3.0);
-      }
-      outColor = vec4(heatmap, 1.0);
-   } else {
-      outColor = vec4(0.0, 0.0, 0.0, 0.0);
+   // Shadow ray
+   float NdotL = max(dot(normal, lightDir), 0.0);
+   float shadow = 1.0;
+
+   if (NdotL > 0.0) {
+      vec3 shadowOrigin = worldPos + normal * shadowBias;
+      shadow = traceShadow(shadowOrigin, lightDir, SHADOW_MAX_DIST) ? 0.0 : 1.0;
    }
 
-   #elif RT_DEBUG_MODE == 2
-   vec4 boxColor = traceBVHDebugBoxes(worldOrigin, worldDir);
-   TraceResult result = traceBVH(worldOrigin, worldDir);
-   if (result.hit) {
-      vec3 normal = result.normal * 0.5 + 0.5;
-      outColor = vec4(mix(normal, boxColor.rgb, boxColor.a), 1.0);
-   } else if (boxColor.a > 0.0) {
-      outColor = vec4(boxColor.rgb * 0.5, boxColor.a);
-   } else {
-      outColor = vec4(0.0, 0.0, 0.0, 0.0);
-   }
-
-   #else
-   TraceResult result = traceBVH(worldOrigin, worldDir);
-   if (result.hit) {
-      vec3 hitPos = worldOrigin + worldDir * result.t;
-      vec3 normal = result.normal;
-
-      float NdotL = max(dot(normal, lightDir), 0.0);
-      float shadow = 1.0;
-
-      if (NdotL > 0.0) {
-         vec3 shadowOrigin = hitPos + normal * SHADOW_BIAS;
-         shadow = traceShadow(shadowOrigin, lightDir, SHADOW_MAX_DIST) ? 0.0 : 1.0;
-      }
-
-      float lighting = max(NdotL * shadow, 0.05);
-      outColor = vec4(vec3(lighting), 1.0);
-   } else {
-      outColor = vec4(0.0, 0.0, 0.0, 0.0);
-   }
-   #endif
-
-   imageStore(colorimg1, coord, outColor);
+   float lighting = max(NdotL * shadow, 0.05) + 0.2;
+   imageStore(colorimg1, coord, vec4(albedo.rgb * lighting, albedo.a));
 }
