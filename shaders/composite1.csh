@@ -37,7 +37,6 @@ void main() {
    vec2 uv = (vec2(coord) + 0.5) / vec2(viewWidth, viewHeight);
    vec2 ndc = uv * 2.0 - 1.0;
 
-   // Camera ray in view space
    vec4 clipDir = vec4(ndc, 1.0, 1.0);
    vec4 viewDir = gbufferProjectionInverse * clipDir;
    viewDir.xyz /= viewDir.w;
@@ -65,7 +64,6 @@ void main() {
       return;
    }
 
-   // Sample albedo from atlas
    vec4 texColor;
    if (hit.textureID == 0u) {
       texColor = texture(blockAtlas, hit.uv);
@@ -78,10 +76,8 @@ void main() {
    }
    vec3 albedo = texColor.rgb * hit.vertexData.rgb;
 
-   // Sun/moon direction in player space
    vec3 lightDir = normalize((gbufferModelViewInverse * vec4(0.01 * shadowLightPosition, 0.0)).xyz);
 
-   // Shadow ray from hit point
    float NdotL = max(dot(hit.normal, lightDir), 0.0);
    float shadow = 1.0;
 
@@ -89,15 +85,16 @@ void main() {
       vec3 hitPos = ro + rd * hit.t;
       vec3 shadowOrigin = hitPos + hit.normal * SHADOW_BIAS;
 
-      int NUM_SAMPLES = 1;
+      int NUM_SAMPLES = 4;
       float lightSpread = 0.03;
       float shadowAccum = 0.0;
+      float weightAccum = 0.0;
 
       vec3 up = abs(lightDir.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
       vec3 tangent = normalize(cross(up, lightDir));
       vec3 bitangent = cross(lightDir, tangent);
 
-      float seed = fract(sin(dot(hitPos.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.283185;
+      float seed = hash12(vec2(coord)) * 6.28318530718;
 
       for (int i = 0; i < NUM_SAMPLES; i++) {
          float r = sqrt((float(i) + 0.5) / float(NUM_SAMPLES));
@@ -106,14 +103,16 @@ void main() {
          vec2 diskPos = vec2(r * cos(theta), r * sin(theta));
 
          vec3 sampleDir = normalize(lightDir + (tangent * diskPos.x + bitangent * diskPos.y) * lightSpread);
+         float sampleNdotL = dot(hit.normal, sampleDir);
 
-         if (dot(hit.normal, sampleDir) > 0.0) {
+         if (sampleNdotL > 0.0) {
             float rayLit = traceShadow(shadowOrigin, sampleDir, SHADOW_MAX_DIST) ? 0.0 : 1.0;
-            shadowAccum += rayLit;
+            shadowAccum += rayLit * sampleNdotL;
+            weightAccum += sampleNdotL;
          }
       }
 
-      shadow = shadowAccum / float(NUM_SAMPLES);
+      shadow = weightAccum > 0.0 ? shadowAccum / weightAccum : 0.0;
    }
 
    float lighting = max(NdotL * shadow, 0.05) + 0.2;
