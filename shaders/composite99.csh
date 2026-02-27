@@ -14,6 +14,7 @@ uniform sampler2D colortex1;
 uniform sampler2D colortex2;
 uniform float viewWidth;
 uniform float viewHeight;
+uniform int textureReloadCount;
 
 #include "/lib/storage.glsl"
 #include "/lib/hploc.glsl"
@@ -97,15 +98,15 @@ void main() {
    printLine();
 
    text.fgCol = vec4(1.0);
-   printString((_C, _o, _l, _l, _i, _s, _i, _o, _n, _s, _colon));
-   text.fgCol = (control.textureCollisions == 0u)
-      ? vec4(0.4, 1.0, 0.4, 1.0) : vec4(0.9, 0.6, 0.1, 1.0);
-   printUnsignedIntWithSeparators(control.textureCollisions);
+   printBar(texFullness, 300, vec3(0.4, 1.0, 0.4), vec3(0.9, 0.2, 0.25));
    printLine();
 
    text.fgCol = vec4(1.0);
-   printBar(texFullness, 300, vec3(0.4, 1.0, 0.4), vec3(0.9, 0.2, 0.25));
+   printString((_R, _e, _l, _o, _a, _d, _s, _colon));
+   text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
+   printUnsignedIntWithSeparators(textureReloadCount);
    printLine();
+
    #endif
 
    #ifdef ENABLE_SORT_VALIDATION
@@ -252,4 +253,8 @@ void main() {
    #endif
 
    imageStore(colorimg0, coord, vec4(color, 1.0));
+
+   if (control.lastTextureReloadCount != textureReloadCount) {
+      control.lastTextureReloadCount = textureReloadCount;
+   }
 }

@@ -5,6 +5,7 @@ in vec4 at_midBlock;
 
 uniform mat4 shadowModelViewInverse;
 uniform sampler2D gtexture;
+uniform int gtextureId = 0;
 
 #define AS_VERTEX
 #include "/lib/storage.glsl"
@@ -24,14 +25,13 @@ void main() {
    uint textureID = 0;
    #ifdef ENTITY_TEXTURES
 
-   uint h = computeTextureHash(gtexture);
    ivec2 tSize = textureSize(gtexture, 0);
 
    bool isNew = false;
    uint slot = INVALID_ID;
 
    if (subgroupElect()) {
-      slot = textureMapInsert(h, tSize, isNew);
+      slot = textureMapInsert(uint(gtextureId), tSize, isNew);
    }
 
    slot = subgroupBroadcastFirst(slot);

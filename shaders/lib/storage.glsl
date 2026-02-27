@@ -88,7 +88,7 @@ layout(std430, binding = 1) buffer ControlBuffer {
    uint realCount1; // 92
    uint realCount2; // 96
    uint textureEntries; // 100
-   uint textureCollisions; // 104
+   int lastTextureReloadCount; // 104
 } control;
 
 const uint MAX_TEXTURES = 65536u;
@@ -111,11 +111,10 @@ layout(std430, binding = 0) restrict buffer VertexBuffer {
 uint getVertexWriteIndex() {
    uvec4 activeMask = subgroupBallot(true);
    uint activeThreads = subgroupBallotBitCount(activeMask);
-   uint allocatedCount = (activeThreads + 3u) & ~3u; // this will be unnecessary eventually
 
    uint baseVertexId = INVALID_ID;
    if (subgroupElect()) {
-      baseVertexId = atomicAdd(count, allocatedCount);
+      baseVertexId = atomicAdd(count, activeThreads);
    }
    baseVertexId = subgroupBroadcastFirst(baseVertexId);
 

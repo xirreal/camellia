@@ -4,12 +4,6 @@
 #define ENTITY_TEXTURES
 //#define ENTITY_TEXTURES_DEBUG
 
-uint pcg_hash(uint v) {
-   uint state = v * 747796405u + 2891336453u;
-   uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-   return (word >> 22u) ^ word;
-}
-
 uint expandBits2D(uint v) {
    v &= 0xFFFFu;
    v = (v | (v << 8)) & 0x00FF00FFu;
@@ -64,89 +58,33 @@ vec4 sampleEntityTexture(uint textureID, vec2 uv) {
 
 #ifdef AS_VERTEX
 
-uint computeTextureHash(sampler2D tex) {
-   ivec2 size = textureSize(tex, 0);
-   vec2 invSize = 1.0 / vec2(size);
-   float inset = 1.5;
-
-   vec2 lo = invSize * inset;
-   vec2 hi = 1.0 - invSize * inset;
-   vec2 mid = vec2(0.5);
-
-   uint s0 = packUnorm4x8(textureLod(tex, vec2(lo.x, lo.y), 0.0));
-   uint s1 = packUnorm4x8(textureLod(tex, vec2(mid.x, lo.y), 0.0));
-   uint s2 = packUnorm4x8(textureLod(tex, vec2(hi.x, lo.y), 0.0));
-   uint s3 = packUnorm4x8(textureLod(tex, vec2(lo.x, mid.y), 0.0));
-   uint s4 = packUnorm4x8(textureLod(tex, vec2(mid.x, mid.y), 0.0));
-   uint s5 = packUnorm4x8(textureLod(tex, vec2(hi.x, mid.y), 0.0));
-   uint s6 = packUnorm4x8(textureLod(tex, vec2(lo.x, hi.y), 0.0));
-   uint s7 = packUnorm4x8(textureLod(tex, vec2(mid.x, hi.y), 0.0));
-   uint s8 = packUnorm4x8(textureLod(tex, vec2(hi.x, hi.y), 0.0));
-
-   uint hash = 2166136261u;
-   uint[11] data = uint[](uint(size.x), uint(size.y), s0, s1, s2, s3, s4, s5, s6, s7, s8);
-
-   #pragma unroll
-   for (int i = 0; i < 11; i++) {
-      hash ^= data[i];
-      hash *= 16777619u;
-   }
-
-   return max(pcg_hash(hash), 1u);
-}
-
-uint textureMapInsert(uint hash, ivec2 texSize, out bool isNew) {
+uint textureMapInsert(uint textureId, ivec2 texSize, out bool isNew) {
+   uint slot = textureId % MAX_TEXTURES;
    isNew = false;
 
-   for (uint probe = 0u; probe < 8u; probe++) {
-      uint slot = (hash + probe) & (MAX_TEXTURES - 1u);
+   uint existing = atomicCompSwap(textureMap[slot].key, 0u, textureId + 1u);
 
-      uint existing = textureMap[slot].key;
+   if (existing == 0u) {
+      isNew = true;
 
-      if (existing == hash) {
-         return slot;
+      uint paddedDim = nextPow2(uint(max(texSize.x, texSize.y)));
+      uint texelCount = paddedDim * paddedDim;
+      uint baseOffset = atomicAdd(textureDataOffset, texelCount);
+
+      if (baseOffset + texelCount > MAX_TEXTURE_DATA) {
+         textureMap[slot].key = 0u;
+         return INVALID_ID;
       }
 
-      if (existing != 0u) {
-         #ifdef ENTITY_TEXTURES_DEBUG
-         atomicAdd(control.textureCollisions, 1u);
-         #endif
-         continue;
-      }
-
-      existing = atomicCompSwap(textureMap[slot].key, 0u, hash);
-
-      if (existing == 0u) {
-         isNew = true;
-
-         uint paddedDim = nextPow2(uint(max(texSize.x, texSize.y)));
-         uint texelCount = paddedDim * paddedDim;
-         uint baseOffset = atomicAdd(textureDataOffset, texelCount);
-
-         if (baseOffset + texelCount > MAX_TEXTURE_DATA) {
-            textureMap[slot].key = 0u;
-            return INVALID_ID;
-         }
-
-         textureMap[slot].sizeX = uint(texSize.x);
-         textureMap[slot].sizeY = uint(texSize.y);
-         textureMap[slot].baseOffset = baseOffset;
-         #ifdef ENTITY_TEXTURES_DEBUG
-         atomicAdd(control.textureEntries, 1u);
-         #endif
-         return slot;
-      }
-
-      if (existing == hash) {
-         return slot;
-      }
-
+      textureMap[slot].sizeX = uint(texSize.x);
+      textureMap[slot].sizeY = uint(texSize.y);
+      textureMap[slot].baseOffset = baseOffset;
       #ifdef ENTITY_TEXTURES_DEBUG
-      atomicAdd(control.textureCollisions, 1u);
+      atomicAdd(control.textureEntries, 1u);
       #endif
    }
 
-   return INVALID_ID;
+   return slot;
 }
 
 void copyTexture(uint baseOffset, ivec2 texSize, sampler2D tex) {
