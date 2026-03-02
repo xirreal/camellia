@@ -93,7 +93,7 @@ uint mergeClustersCreateBVH2Node(
             vec3 newMin = min(leftMin, rightMin);
             vec3 newMax = max(leftMax, rightMax);
 
-            bvh2Nodes[bvh2Index] = BVH2Node(newMin, leftCI, newMax, rightCI);
+            bvh2Nodes[bvh2Index] = BVH2Node(leftMin, leftCI, leftMax, rightCI, rightMin, 0.0, rightMax, 0.0);
             boundsMin = newMin;
             boundsMax = newMax;
             newCI = makeInternalID(bvh2Index);

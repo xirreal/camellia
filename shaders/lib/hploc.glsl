@@ -30,11 +30,21 @@ struct AABB {
 }; // 32 bytes (i dont like the padding though grr)
 
 struct BVH2Node {
-   vec3 aabbMin;
+   vec3 c0Min;
    uint leftChild;
-   vec3 aabbMax;
+   vec3 c0Max;
    uint rightChild;
-}; // 32 bytes
+   vec3 c1Min;
+   float _pad0;
+   vec3 c1Max;
+   float _pad1;
+}; // 64 bytes
+
+struct QuadPositions {
+   vec4 d0; // p0.xyz, p1.x
+   vec4 d1; // p1.yz, p2.xy
+   vec4 d2; // p2.z, p3.xyz
+}; // 48 bytes
 
 layout(std430, binding = 2) restrict buffer AABBBuffer {
    AABB aabbs[];
@@ -60,6 +70,10 @@ layout(std430, binding = 7) restrict buffer SortScratchBuffer {
    uint sortScratch[];
 };
 
+layout(std430, binding = 10) restrict buffer QuadPosBuffer {
+   QuadPositions quadPositions[];
+};
+
 uint makeLeafID(uint primID) {
    return primID & CLUSTER_PRIM_MASK;
 }
@@ -81,8 +95,8 @@ bool loadClusterAABB(uint clusterID, out vec3 bMin, out vec3 bMax) {
 
    if (isInternalNode(clusterID)) {
       BVH2Node node = bvh2Nodes[primID];
-      bMin = node.aabbMin;
-      bMax = node.aabbMax;
+      bMin = min(node.c0Min, node.c1Min);
+      bMax = max(node.c0Max, node.c1Max);
       return true;
    } else {
       bMin = aabbs[primID].minBounds;

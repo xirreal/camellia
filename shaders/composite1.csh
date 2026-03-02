@@ -21,7 +21,7 @@ uniform float near;
 #include "/lib/raytrace.glsl"
 
 const float SHADOW_BIAS = 0.01;
-const float SHADOW_MAX_DIST = 64.0;
+const float SHADOW_MAX_DIST = 256.0;
 
 float hash12(vec2 p)
 {
@@ -85,8 +85,8 @@ void main() {
       vec3 hitPos = ro + rd * hit.t;
       vec3 shadowOrigin = hitPos + hit.normal * SHADOW_BIAS;
 
-      int NUM_SAMPLES = 4;
-      float lightSpread = 0.03;
+      int NUM_SAMPLES = 8;
+      float lightSpread = 0.007;
       float shadowAccum = 0.0;
       float weightAccum = 0.0;
 

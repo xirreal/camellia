@@ -31,6 +31,11 @@ void main() {
       uint morton = encodeMorton3D(normCentroid);
 
       aabbs[gID] = AABB(quadMin, 0.0, quadMax, 0.0);
+      quadPositions[gID] = QuadPositions(
+         vec4(p1.xyz, p2.x),
+         vec4(p2.yz, p3.xy),
+         vec4(p3.z, p4.xyz)
+      );
       mortonCodes[gID] = morton;
       clusterIndices[gID] = makeLeafID(gID);
       parentIDs[gID] = INVALID_ID;

@@ -27,12 +27,22 @@ vec3 decodeNormal(uint packedNormal) {
    return normalize(n);
 }
 
-uint encodeVertexData(vec3 color, float emission) {
-   return packUnorm4x8(vec4(color, emission));
+// Emission byte layout: bits 0-3 = emission (0-15), bit 4 = alpha-tested flag
+uint encodeVertexData(vec3 color, float emission, bool alphaTested) {
+   uint rgb = packUnorm4x8(vec4(color, 0.0)) & 0x00FFFFFFu;
+   uint emissionBits = uint(clamp(round(emission * 15.0), 0.0, 15.0));
+   uint alphaFlag = alphaTested ? 0x10u : 0u;
+   return rgb | ((emissionBits | alphaFlag) << 24u);
 }
 
-vec4 decodeVertexData(uint packedVertexData) {
-   return unpackUnorm4x8(packedVertexData);
+vec4 decodeVertexData(uint encodedData) {
+   vec4 v = unpackUnorm4x8(encodedData);
+   v.a = float((encodedData >> 24u) & 0xFu) / 15.0;
+   return v;
+}
+
+bool isAlphaTested(uint encodedData) {
+   return ((encodedData >> 28u) & 1u) != 0u;
 }
 
 #endif

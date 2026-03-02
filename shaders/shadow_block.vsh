@@ -46,7 +46,7 @@ void main() {
    textureID = 1; // sentinel to disable alpha testing in rt loop
    #endif
 
-   Vertex vertex = Vertex(playerSpacePos, encodeVertexData(color, emission), coord, uint(mc_Entity.x), textureID);
+   Vertex vertex = Vertex(playerSpacePos, encodeVertexData(color, emission, true), coord, uint(mc_Entity.x), textureID);
 
    uint vertexId = getVertexWriteIndex();
 

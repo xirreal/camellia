@@ -3,6 +3,7 @@
 in vec2 mc_Entity;
 in vec4 at_midBlock;
 
+uniform vec4 entityColor;
 uniform mat4 shadowModelViewInverse;
 uniform sampler2D gtexture;
 uniform int gtextureId;
@@ -46,7 +47,7 @@ void main() {
    textureID = 1; // sentinel to disable alpha testing in rt loop
    #endif
 
-   Vertex vertex = Vertex(playerSpacePos, encodeVertexData(color, emission), coord, uint(mc_Entity.x), textureID);
+   Vertex vertex = Vertex(playerSpacePos, encodeVertexData(mix(color.rgb, entityColor.rgb, entityColor.a), emission, true), coord, uint(mc_Entity.x), textureID);
 
    uint vertexId = getVertexWriteIndex();
 
