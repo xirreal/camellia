@@ -111,16 +111,18 @@ layout(std430, binding = 0) restrict buffer VertexBuffer {
 uint getVertexWriteIndex() {
    uvec4 activeMask = subgroupBallot(true);
    uint activeThreads = subgroupBallotBitCount(activeMask);
+   uint allocatedCount = (activeThreads + 3u) & ~0x3u; // round up to nearest multiple of 4, for triangle strips
 
    uint baseVertexId = INVALID_ID;
    if (subgroupElect()) {
-      baseVertexId = atomicAdd(count, activeThreads);
+      baseVertexId = atomicAdd(count, allocatedCount);
    }
    baseVertexId = subgroupBroadcastFirst(baseVertexId);
 
    uint lane = subgroupBallotExclusiveBitCount(activeMask);
 
-   if (baseVertexId + activeThreads > MAX_VERTEX_COUNT) return INVALID_ID;
+   if (baseVertexId + allocatedCount > MAX_VERTEX_COUNT) return INVALID_ID;
+
    return baseVertexId + lane;
 }
 

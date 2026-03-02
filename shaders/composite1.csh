@@ -20,7 +20,8 @@ uniform float near;
 #include "/lib/encoding.glsl"
 #include "/lib/raytrace.glsl"
 
-const float SHADOW_BIAS = 0.01;
+const float CLOSE_SHADOW_BIAS = 0.000001;
+const float FAR_SHADOW_BIAS = 0.0001;
 const float SHADOW_MAX_DIST = 256.0;
 
 float hash12(vec2 p)
@@ -83,9 +84,9 @@ void main() {
 
    if (NdotL > 0.0) {
       vec3 hitPos = ro + rd * hit.t;
-      vec3 shadowOrigin = hitPos + hit.normal * SHADOW_BIAS;
+      vec3 shadowOrigin = hitPos + hit.normal * mix(CLOSE_SHADOW_BIAS, FAR_SHADOW_BIAS, hit.t / SHADOW_MAX_DIST);
 
-      int NUM_SAMPLES = 8;
+      int NUM_SAMPLES = 4;
       float lightSpread = 0.007;
       float shadowAccum = 0.0;
       float weightAccum = 0.0;
@@ -115,6 +116,6 @@ void main() {
       shadow = weightAccum > 0.0 ? shadowAccum / weightAccum : 0.0;
    }
 
-   float lighting = max(NdotL * shadow, 0.05) + 0.2;
+   float lighting = max(NdotL * shadow, 0.05) + 0.25;
    imageStore(colorimg1, coord, vec4(albedo * lighting, 1.0));
 }
