@@ -21,7 +21,6 @@ void main() {
 
    vec2 coord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
    vec3 color = gl_Color.rgb;
-   float emission = at_midBlock.w;
 
    uint textureID = 0;
    #ifdef ENTITY_TEXTURES
@@ -47,7 +46,7 @@ void main() {
    textureID = 1; // sentinel to disable alpha testing in rt loop
    #endif
 
-   Vertex vertex = Vertex(playerSpacePos, encodeVertexData(mix(color.rgb, entityColor.rgb, entityColor.a), emission, true), coord, uint(mc_Entity.x), textureID);
+   Vertex vertex = Vertex(playerSpacePos, encodeVertexData(mix(color.rgb, entityColor.rgb, entityColor.a), 0.0, true), coord, uint(mc_Entity.x), textureID);
 
    uint vertexId = getVertexWriteIndex();
 

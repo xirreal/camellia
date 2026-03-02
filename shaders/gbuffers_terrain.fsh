@@ -3,6 +3,7 @@
 in vec2 texcoord;
 in vec3 tint;
 in vec3 normal;
+in float emission;
 
 uniform sampler2D gtexture;
 uniform mat4 gbufferModelViewInverse;
@@ -19,5 +20,5 @@ void main() {
    }
 
    albedoOut = albedo;
-   normalsOut = vec4((mat3(gbufferModelViewInverse) * normal) * 0.5 + 0.5, 1.0);
+   normalsOut = vec4((mat3(gbufferModelViewInverse) * normal) * 0.5 + 0.5, emission);
 }

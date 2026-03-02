@@ -27,12 +27,17 @@ vec3 decodeNormal(uint packedNormal) {
    return normalize(n);
 }
 
-// Emission byte layout: bits 0-3 = emission (0-15), bit 4 = alpha-tested flag
-uint encodeVertexData(vec3 color, float emission, bool alphaTested) {
+// Emission byte layout: bits 0-3 = emission (0-15), bit 4 = alpha-tested flag, bit 5 = translucent flag
+uint encodeVertexData(vec3 color, float emission, bool alphaTested, bool translucent) {
    uint rgb = packUnorm4x8(vec4(color, 0.0)) & 0x00FFFFFFu;
-   uint emissionBits = uint(clamp(round(emission * 15.0), 0.0, 15.0));
+   uint emissionBits = uint(clamp(emission, 0.0, 15.0));
    uint alphaFlag = alphaTested ? 0x10u : 0u;
-   return rgb | ((emissionBits | alphaFlag) << 24u);
+   uint translucentFlag = translucent ? 0x20u : 0u;
+   return rgb | ((emissionBits | alphaFlag | translucentFlag) << 24u);
+}
+
+uint encodeVertexData(vec3 color, float emission, bool alphaTested) {
+   return encodeVertexData(color, emission, alphaTested, false);
 }
 
 vec4 decodeVertexData(uint encodedData) {
@@ -43,6 +48,10 @@ vec4 decodeVertexData(uint encodedData) {
 
 bool isAlphaTested(uint encodedData) {
    return ((encodedData >> 28u) & 1u) != 0u;
+}
+
+bool isTranslucent(uint encodedData) {
+   return ((encodedData >> 29u) & 1u) != 0u;
 }
 
 #endif

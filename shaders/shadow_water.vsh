@@ -21,7 +21,7 @@ void main() {
 
    uint textureID = 0; // solid blocks get id 0
 
-   Vertex vertex = Vertex(playerSpacePos, encodeVertexData(color, emission, false), coord, uint(mc_Entity.x), textureID);
+   Vertex vertex = Vertex(playerSpacePos, encodeVertexData(color, emission, false, true), coord, uint(mc_Entity.x), textureID);
 
    uint vertexId = getVertexWriteIndex();
 

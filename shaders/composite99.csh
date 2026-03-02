@@ -10,7 +10,7 @@ layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 layout(rgba8) uniform writeonly image2D colorimg0;
 
 uniform sampler2D colortex0;
-uniform sampler2D colortex1;
+uniform sampler2D colortex5;
 uniform sampler2D colortex2;
 uniform float viewWidth;
 uniform float viewHeight;
@@ -24,12 +24,24 @@ vec3 gradient(float t) {
    return mix(vec3(0.4, 1.0, 0.4), vec3(0.9, 0.2, 0.25), t);
 }
 
+// ACES filmic tonemapping (Narkowicz 2015)
+vec3 acesTonemap(vec3 x) {
+   const float a = 2.51;
+   const float b = 0.03;
+   const float c = 2.43;
+   const float d = 0.59;
+   const float e = 0.14;
+   return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
 void main() {
    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
 
    if (coord.x >= int(viewWidth) || coord.y >= int(viewHeight)) return;
 
-   vec3 color = texture(colortex1, vec2(coord + 0.5) / vec2(viewWidth, viewHeight)).rgb;
+   vec3 hdr = texture(colortex5, vec2(coord + 0.5) / vec2(viewWidth, viewHeight)).rgb;
+   vec3 color = acesTonemap(hdr);
+   color = pow(color, vec3(1.0 / 2.2));
 
    #ifdef ENABLE_DEBUG_OVERLAY
 
