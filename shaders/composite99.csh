@@ -101,6 +101,10 @@ void main() {
    printLine();
 
    text.fgCol = vec4(1.0);
+   printBar(texFullness, 300, vec3(0.4, 1.0, 0.4), vec3(0.9, 0.2, 0.25));
+   printLine();
+
+   text.fgCol = vec4(1.0);
    printString((_T, _e, _x, _space, _D, _a, _t, _a, _colon));
    float dataFullness = float(textureDataOffset) / float(MAX_TEXTURE_DATA);
    text.fgCol = vec4(gradient(dataFullness), 1.0);
@@ -110,7 +114,7 @@ void main() {
    printLine();
 
    text.fgCol = vec4(1.0);
-   printBar(texFullness, 300, vec3(0.4, 1.0, 0.4), vec3(0.9, 0.2, 0.25));
+   printBar(dataFullness, 300, vec3(0.4, 1.0, 0.4), vec3(0.9, 0.2, 0.25));
    printLine();
 
    text.fgCol = vec4(1.0);

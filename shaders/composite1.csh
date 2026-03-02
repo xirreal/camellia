@@ -28,8 +28,8 @@ uniform float near;
 
 const int MAX_BOUNCES = 4;
 const float SHADOW_MAX_DIST = 256.0;
-const float SKY_BRIGHTNESS = 0.02;
-const float SUN_BRIGHTNESS = 0.05;
+const float SKY_BRIGHTNESS = 0.75;
+const float SUN_BRIGHTNESS = 5.0;
 const float PI = 3.14159265359;
 const float GLASS_IOR = 1.5;
 
@@ -253,7 +253,11 @@ void main() {
    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
    if (coord.x >= int(viewWidth) || coord.y >= int(viewHeight)) return;
 
-   vec2 uv = (vec2(coord) + 0.5) / vec2(viewWidth, viewHeight);
+   initRNG(coord, frameCounter);
+
+   vec2 jitter = vec2(rand(), rand()) - 0.5;
+   vec2 rawUV = (vec2(coord) + 0.5) / vec2(viewWidth, viewHeight);
+   vec2 uv = (vec2(coord) + 0.5 + jitter) / vec2(viewWidth, viewHeight);
    vec2 ndc = uv * 2.0 - 1.0;
 
    vec4 clipDir = vec4(ndc, 1.0, 1.0);
@@ -278,15 +282,13 @@ void main() {
 
    vec3 lightDir = normalize((gbufferModelViewInverse * vec4(0.01 * shadowLightPosition, 0.0)).xyz);
 
-   initRNG(coord, frameCounter);
-
    // Primary ray
    TraceResult primaryHit = traceBVH(ro, rd);
 
    if (!primaryHit.hit) {
       vec3 sky = getSkyColor(rd, lightDir);
 
-      vec4 prev = texture(colortex5, uv);
+      vec4 prev = texture(colortex5, rawUV);
       float frameCount = prev.a;
       vec3 accumulated;
       float newCount;
@@ -381,6 +383,9 @@ void main() {
          // Blend between glass (refract/reflect) and diffuse based on texture alpha
          float glassProb = 1.0 - opacity;
 
+         // Scale translucent diffuse by roughness to avoid overly opaque direct lighting
+         diffuseAlbedo *= roughness;
+
          if (rand() < glassProb) {
             // Glass path: Fresnel reflection or refraction
             if (rand() < fresnel) {
@@ -428,7 +433,7 @@ void main() {
       float emission = max(bounceHit.vertexData.a, emissionMap);
       if (emission > 0.0) {
          float emitter = pow(length(bounceAlbedo * 1.5), 5.6) * 0.5;
-         radiance += throughput * bounceAlbedo * emitter * emission;
+         radiance += throughput * bounceAlbedo * emitter * emission * 2.0;
       }
 
       // Direct lighting: NEE with tinted soft shadows
@@ -509,7 +514,7 @@ void main() {
       }
    }
 
-   vec4 prev = texture(colortex5, uv);
+   vec4 prev = texture(colortex5, rawUV);
    float frameCount = prev.a;
 
    vec3 accumulated;
