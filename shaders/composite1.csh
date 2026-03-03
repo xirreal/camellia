@@ -388,32 +388,38 @@ void main() {
 
          if (rand() < glassProb) {
             // Glass path: Fresnel reflection or refraction
-            if (rand() < fresnel) {
+            vec3 refracted = refract(bounceDir, N, eta);
+            bool tir = dot(refracted, refracted) < 0.001;
+
+            if (tir || rand() < fresnel) {
+               // Reflection (Fresnel or TIR)
                nextDir = reflect(bounceDir, N);
-               hitPos = hitPoint + N * 0.001;
-               hitNormal = N;
-            } else {
-               vec3 refracted = refract(bounceDir, N, eta);
 
-               if (dot(refracted, refracted) < 0.001) {
-                  nextDir = reflect(bounceDir, N);
-                  hitPos = hitPoint + N * 0.001;
-                  hitNormal = N;
-               } else {
-                  nextDir = refracted;
-
-                  if (insideMedium) {
-                     vec3 absorption = -log(max(mediumColor, vec3(0.01)));
-                     throughput *= exp(-absorption * bounceHit.t);
-                     insideMedium = false;
-                  } else {
-                     insideMedium = true;
-                     mediumColor = glassColor;
-                  }
-
+               if (insideMedium) {
+                  // Ray stays inside the medium — absorb and keep medium state
+                  vec3 absorption = -log(max(mediumColor, vec3(0.01)));
+                  throughput *= exp(-absorption * bounceHit.t);
+                  // Offset into the medium (N points inward when insideMedium)
                   hitPos = hitPoint - N * 0.001;
                   hitNormal = -N;
+               } else {
+                  hitPos = hitPoint + N * 0.001;
+                  hitNormal = N;
                }
+            } else {
+               nextDir = refracted;
+
+               if (insideMedium) {
+                  vec3 absorption = -log(max(mediumColor, vec3(0.01)));
+                  throughput *= exp(-absorption * bounceHit.t);
+                  insideMedium = false;
+               } else {
+                  insideMedium = true;
+                  mediumColor = glassColor;
+               }
+
+               hitPos = hitPoint - N * 0.001;
+               hitNormal = -N;
             }
             hasFixedDir = true;
             shadowBias = 0.001;
