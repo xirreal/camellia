@@ -11,30 +11,26 @@ uniform float far;
 #extension GL_KHR_shader_subgroup_shuffle : enable
 #extension GL_KHR_shader_subgroup_shuffle_relative : enable
 
-uint expandBits(uint v) {
+uvec3 expandBits3D(uvec3 v) {
    v &= 0x000003ffu;
-   v = (v ^ (v << 16)) & 0xff0000ffu;
-   v = (v ^ (v << 8)) & 0x0300f00fu;
-   v = (v ^ (v << 4)) & 0x030c30c3u;
-   v = (v ^ (v << 2)) & 0x09249249u;
+   v = (v ^ (v << 16u)) & 0xff0000ffu;
+   v = (v ^ (v << 8u)) & 0x0300f00fu;
+   v = (v ^ (v << 4u)) & 0x030c30c3u;
+   v = (v ^ (v << 2u)) & 0x09249249u;
    return v;
 }
 
 uint encodeMorton3D(vec3 normalizedPos) {
    uvec3 i = uvec3(clamp(normalizedPos, 0.0, 1.0) * vec3(2047.0, 1023.0, 2047.0));
 
-   uint x_m = expandBits(i.x);
-   uint z_m = expandBits(i.z);
-   uint y_m = expandBits(i.y);
+   uvec3 expanded = expandBits3D(i);
 
-   uint x_top = (i.x & 0x0400u) << 20;
-   uint z_top = (i.z & 0x0400u) << 20;
+   uint x_top = (i.x & 0x0400u) << 20u;
+   uint z_top = (i.z & 0x0400u) << 20u;
 
-   uint x_final = x_m | x_top;
-   uint z_final = z_m | z_top;
-   uint y_final = y_m;
+   uint morton = (expanded.y << 2u) | (expanded.z << 1u) | expanded.x;
 
-   return (y_final << 2) | (z_final << 1) | x_final;
+   return morton | x_top | z_top;
 }
 
 struct Vertex {
@@ -52,7 +48,7 @@ const uint INVALID_ID = 0xFFFFFFFFu;
 
 const uint RADIX_BITS = 4u;
 const uint RADIX = 1u << RADIX_BITS;
-#define WG_SIZE 32 // [32 64 128]
+const uint WAVE_SIZE = 32u;
 const uint SORT_WG_SIZE = 256u;
 const uint SORT_MAX_WORKGROUPS = (MAX_QUAD_COUNT + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
 
@@ -161,13 +157,17 @@ layout(std430, binding = 9) restrict readonly buffer TextureDataBuffer {
 #endif
 
 uint floatToOrderedUint(float v) {
-   uint u = floatBitsToUint(v);
-   uint mask = (u & 0x80000000u) != 0u ? 0xFFFFFFFFu : 0x80000000u;
-   return u ^ mask;
+   int i = floatBitsToInt(v);
+   // If positive: i >> 31 is 0x00000000. Mask becomes 0x80000000u.
+   // If negative: i >> 31 is 0xFFFFFFFF. Mask becomes 0xFFFFFFFFu.
+   uint mask = uint(i >> 31) | 0x80000000u;
+   return uint(i) ^ mask;
 }
 
 float orderedUintToFloat(uint o) {
-   uint mask = (o & 0x80000000u) != 0u ? 0x80000000u : 0xFFFFFFFFu;
+   // If o has MSB 1 (originally positive float): int(o) >> 31 is 0xFFFFFFFF. Bitwise NOT makes it 0. Mask becomes 0x80000000u.
+   // If o has MSB 0 (originally negative float): int(o) >> 31 is 0x00000000. Bitwise NOT makes it 0xFFFFFFFF. Mask becomes 0xFFFFFFFFu.
+   uint mask = (~uint(int(o) >> 31)) | 0x80000000u;
    return uintBitsToFloat(o ^ mask);
 }
 
@@ -180,18 +180,30 @@ uvec3 encodeBound(vec3 pos) {
 }
 
 vec3 getSceneMax() {
+   uvec3 rawMax = uvec3(
+         control.boundsMaxX,
+         control.boundsMaxY,
+         control.boundsMaxZ
+      );
+
    return vec3(
-      orderedUintToFloat(control.boundsMaxX),
-      orderedUintToFloat(control.boundsMaxY),
-      orderedUintToFloat(control.boundsMaxZ)
+      orderedUintToFloat(rawMax.x),
+      orderedUintToFloat(rawMax.y),
+      orderedUintToFloat(rawMax.z)
    );
 }
 
 vec3 getSceneMin() {
+   uvec3 rawMin = uvec3(
+         control.boundsMinX,
+         control.boundsMinY,
+         control.boundsMinZ
+      );
+
    return vec3(
-      orderedUintToFloat(control.boundsMinX),
-      orderedUintToFloat(control.boundsMinY),
-      orderedUintToFloat(control.boundsMinZ)
+      orderedUintToFloat(rawMin.x),
+      orderedUintToFloat(rawMin.y),
+      orderedUintToFloat(rawMin.z)
    );
 }
 

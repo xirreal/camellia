@@ -27,7 +27,7 @@ float triangleAreaSq(vec3 a, vec3 b, vec3 c) {
 }
 
 void main() {
-   #infdef ENABLE_QUAD_VALIDATION
+   #ifndef ENABLE_QUAD_VALIDATION
    return;
    #endif
 

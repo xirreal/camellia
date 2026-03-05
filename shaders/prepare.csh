@@ -9,7 +9,17 @@ layout(local_size_x = 64) in;
 
 void main() {
    uint gID = gl_GlobalInvocationID.x;
-   uint numQuads = min(count >> 2u, MAX_QUAD_COUNT);
+   uint numQuads = 0;
+   vec3 sceneMin;
+   vec3 sceneMax;
+   if (subgroupElect()) {
+      numQuads = min(count >> 2u, MAX_QUAD_COUNT);
+      sceneMax = getSceneMax();
+      sceneMin = getSceneMin();
+   }
+   numQuads = subgroupBroadcastFirst(numQuads);
+   sceneMin = subgroupBroadcastFirst(sceneMin);
+   sceneMax = subgroupBroadcastFirst(sceneMax);
 
    if (gID < numQuads) {
       Quad q = quads[gID];
@@ -23,8 +33,6 @@ void main() {
       vec3 quadMax = max(max(p1, p2), max(p3, p4));
       vec3 quadCenter = (p1 + p2 + p3 + p4) * 0.25;
 
-      vec3 sceneMax = getSceneMax();
-      vec3 sceneMin = getSceneMin();
       vec3 range = max(sceneMax - sceneMin, vec3(1e-9));
 
       vec3 normCentroid = (quadCenter - sceneMin) / range;
@@ -32,28 +40,25 @@ void main() {
 
       aabbs[gID] = AABB(quadMin, 0.0, quadMax, 0.0);
       quadPositions[gID] = QuadPositions(
-         vec4(p1.xyz, p2.x),
-         vec4(p2.yz, p3.xy),
-         vec4(p3.z, p4.xyz)
-      );
+            vec4(p1.xyz, p2.x),
+            vec4(p2.yz, p3.xy),
+            vec4(p3.z, p4.xyz)
+         );
       mortonCodes[gID] = morton;
       clusterIndices[gID] = makeLeafID(gID);
       parentIDs[gID] = INVALID_ID;
    }
 
    if (gID == 0u) {
-      uint N = count >> 2u;
-      N = min(N, MAX_QUAD_COUNT);
-
-      uint sortWorkgroups = (N + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
+      uint sortWorkgroups = (numQuads + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
 
       control.sortDispatchX = sortWorkgroups;
       control.sortDispatchY = 1u;
       control.sortDispatchZ = 1u;
 
-      control.sortTotal = N;
+      control.sortTotal = numQuads;
 
-      uint hplocWGs = (N + uint(WG_SIZE) - 1u) / uint(WG_SIZE);
+      uint hplocWGs = (numQuads + uint(WAVE_SIZE) - 1u) / uint(WAVE_SIZE);
       control.hplocDispatchX = hplocWGs;
       control.hplocDispatchY = 1u;
       control.hplocDispatchZ = 1u;

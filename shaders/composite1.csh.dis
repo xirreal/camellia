@@ -166,16 +166,31 @@ vec3 conductorF0(vec3 n, vec3 k) {
    return num / den;
 }
 
+const vec3 METAL_N[8] = vec3[8](
+   vec3(2.9114, 2.9497, 2.5845),   // 230: iron
+   vec3(0.18299, 0.42108, 1.3734), // 231: gold
+   vec3(1.3456, 0.96521, 0.61722), // 232: aluminum
+   vec3(3.1071, 3.1812, 2.3230),   // 233: chrome
+   vec3(0.27105, 0.67693, 1.3164), // 234: copper
+   vec3(1.9100, 1.8300, 1.4400),   // 235: lead
+   vec3(2.3757, 2.0847, 1.8453),   // 236: platinum
+   vec3(0.15943, 0.14512, 0.13547) // 237: silver
+);
+const vec3 METAL_K[8] = vec3[8](
+   vec3(3.0893, 2.9318, 2.7670),
+   vec3(3.4242, 2.3459, 1.7704),
+   vec3(7.4746, 6.3995, 5.3031),
+   vec3(3.3314, 3.3291, 3.1350),
+   vec3(3.6092, 2.6248, 2.2921),
+   vec3(3.5100, 3.4000, 3.1800),
+   vec3(4.2655, 3.7153, 3.1365),
+   vec3(3.9291, 3.1900, 2.3808)
+);
+
 vec3 labPBRMetalF0(int metalID) {
-   if (metalID == 230) return conductorF0(vec3(2.9114, 2.9497, 2.5845), vec3(3.0893, 2.9318, 2.7670)); // iron
-   if (metalID == 231) return conductorF0(vec3(0.18299, 0.42108, 1.3734), vec3(3.4242, 2.3459, 1.7704)); // gold
-   if (metalID == 232) return conductorF0(vec3(1.3456, 0.96521, 0.61722), vec3(7.4746, 6.3995, 5.3031)); // aluminum
-   if (metalID == 233) return conductorF0(vec3(3.1071, 3.1812, 2.3230), vec3(3.3314, 3.3291, 3.1350)); // chrome
-   if (metalID == 234) return conductorF0(vec3(0.27105, 0.67693, 1.3164), vec3(3.6092, 2.6248, 2.2921)); // copper
-   if (metalID == 235) return conductorF0(vec3(1.9100, 1.8300, 1.4400), vec3(3.5100, 3.4000, 3.1800)); // lead
-   if (metalID == 236) return conductorF0(vec3(2.3757, 2.0847, 1.8453), vec3(4.2655, 3.7153, 3.1365)); // platinum
-   if (metalID == 237) return conductorF0(vec3(0.15943, 0.14512, 0.13547), vec3(3.9291, 3.1900, 2.3808)); // silver
-   return vec3(1.0);
+   int idx = metalID - 230;
+   if (idx < 0 || idx > 7) return vec3(1.0);
+   return conductorF0(METAL_N[idx], METAL_K[idx]);
 }
 
 float D_GGX(float NdotH, float roughness) {
@@ -263,8 +278,8 @@ void main() {
    vec4 clipDir = vec4(ndc, 1.0, 1.0);
    vec4 viewDir = gbufferProjectionInverse * clipDir;
    viewDir.xyz /= viewDir.w;
-   vec3 rd = normalize((gbufferModelViewInverse * vec4(viewDir.xyz, 0.0)).xyz);
-   vec3 ro = (gbufferModelViewInverse * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+   vec3 rd = normalize((mat3(gbufferModelViewInverse) * viewDir.xyz));
+   vec3 ro = gbufferModelViewInverse[3].xyz;
 
    // Skip player model AABB in first person
    if (firstPersonCamera) {
@@ -282,7 +297,7 @@ void main() {
 
    vec3 lightDir = normalize((gbufferModelViewInverse * vec4(0.01 * shadowLightPosition, 0.0)).xyz);
 
-   // Primary ray
+   // Primary ray — reused as first bounce hit to avoid tracing the same ray twice
    TraceResult primaryHit = traceBVH(ro, rd);
 
    if (!primaryHit.hit) {
@@ -314,6 +329,8 @@ void main() {
    vec3 nextDir = rd;
    bool hasFixedDir = true;
    float shadowBias = 0.001;
+   TraceResult cachedHit = primaryHit;
+   bool hasCachedHit = true;
 
    for (int bounce = 0; bounce < MAX_BOUNCES; bounce++) {
       vec3 origin = hitPos + hitNormal * shadowBias;
@@ -325,9 +342,16 @@ void main() {
          hasFixedDir = false;
       } else {
          bounceDir = sampleCosineHemisphere(hitNormal);
+         hasCachedHit = false;
       }
 
-      TraceResult bounceHit = traceBVH(origin, bounceDir);
+      TraceResult bounceHit;
+      if (hasCachedHit) {
+         bounceHit = cachedHit;
+         hasCachedHit = false;
+      } else {
+         bounceHit = traceBVH(origin, bounceDir);
+      }
 
       if (!bounceHit.hit) {
          radiance += throughput * getSkyColor(bounceDir, lightDir);
@@ -345,7 +369,7 @@ void main() {
          texColor = vec4(1.0);
          #endif
       }
-      vec3 bounceAlbedo = pow(texColor.rgb, vec3(2.2)) * bounceHit.vertexData.rgb;
+      vec3 bounceAlbedo = pow(texColor.rgb * bounceHit.vertexData.rgb, vec3(2.2));
 
       vec3 shadeNormal = bounceHit.normal;
       float roughness;
@@ -374,7 +398,7 @@ void main() {
             #endif
          }
          float opacity = glassTexColor.a;
-         vec3 glassColor = pow(glassTexColor.rgb * glassTexColor.rgb, vec3(2.2)) * bounceHit.vertexData.rgb;
+         vec3 glassColor = pow(glassTexColor.rgb * glassTexColor.rgb * bounceHit.vertexData.rgb, vec3(2.2));
 
          float eta = insideMedium ? (GLASS_IOR / 1.0) : (1.0 / GLASS_IOR);
          float cosI = abs(dot(bounceDir, N));
