@@ -85,7 +85,14 @@ layout(std430, binding = 1) buffer ControlBuffer {
    uint realCount2; // 96
    uint textureEntries; // 100
    int lastTextureReloadCount; // 104
-} control;
+   uint textureReloadDelay; // 108
+   uint sceneFrozen; // 112
+   mat4 frozenProjInv; // 116
+   mat4 frozenModelViewInv; // 180
+   vec4 frozenLightPos; // 244
+   uint frozenFirstPerson; // 260
+   float autofocusDist; // 264
+   } control;
 
 const uint MAX_TEXTURES = 65536u;
 const uint MAX_TEXTURE_DATA = 268435456u; // 1GiB of total data

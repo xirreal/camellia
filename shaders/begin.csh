@@ -1,6 +1,11 @@
 #version 460 compatibility
 
 uniform int textureReloadCount;
+uniform bool hideGUI;
+uniform mat4 gbufferProjectionInverse;
+uniform mat4 gbufferModelViewInverse;
+uniform vec3 shadowLightPosition;
+uniform bool firstPersonCamera;
 
 #define AS_VERTEX
 #include "/lib/storage.glsl"
@@ -13,7 +18,43 @@ layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 void main() {
    uint id = gl_GlobalInvocationID.x;
 
+   if (control.lastTextureReloadCount != textureReloadCount) {
+      if (id == 0) {
+         control.textureReloadDelay = 2u;
+         control.lastTextureReloadCount = textureReloadCount;
+      }
+   }
+
+   if (control.textureReloadDelay > 0u) {
+      if (id == 0) {
+         control.textureEntries = 0u;
+         textureDataOffset = 0u;
+         control.textureReloadDelay--;
+      }
+      if (id < MAX_TEXTURES) {
+         textureMap[id].key = 0u;
+      }
+   }
+
+   // When hideGUI is true, freeze the scene — skip all resets so the
+   // previous frame's geometry and BVH stay intact for accumulation.
+   if (hideGUI) {
+      if (id == 0) {
+         // Save camera state on the transition frame (unfrozen -> frozen)
+         if (control.sceneFrozen == 0u) {
+            control.frozenProjInv = gbufferProjectionInverse;
+            control.frozenModelViewInv = gbufferModelViewInverse;
+            control.frozenLightPos = vec4(shadowLightPosition, 0.0);
+            control.frozenFirstPerson = firstPersonCamera ? 1u : 0u;
+         }
+         control.sceneFrozen = 1u;
+      }
+      return;
+   }
+
    if (id == 0) {
+      control.sceneFrozen = 0u;
+
       count = 0u;
 
       control.boundsMinX = 0xFFFFFFFFu;
@@ -48,15 +89,5 @@ void main() {
 
       control.realCount1 = 0u;
       control.realCount2 = 0u;
-   }
-
-   if (control.lastTextureReloadCount != textureReloadCount) {
-      if (id == 0) {
-         control.textureEntries = 0u;
-         textureDataOffset = 0u;
-      }
-      if (id < MAX_TEXTURES) {
-         textureMap[id].key = 0u;
-      }
    }
 }

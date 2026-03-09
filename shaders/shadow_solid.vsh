@@ -12,6 +12,8 @@ uniform mat4 shadowModelViewInverse;
 void main() {
    gl_Position = vec4(vec3(11.0), 1.0);
 
+   if (control.sceneFrozen != 0u) return;
+
    vec3 shadowViewSpacePos = (gl_ModelViewMatrix * vec4(gl_Vertex.xyz, 1.0)).xyz;
    vec3 playerSpacePos = (shadowModelViewInverse * vec4(shadowViewSpacePos, 1.0)).xyz;
 

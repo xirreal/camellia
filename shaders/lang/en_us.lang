@@ -1,0 +1,32 @@
+# Depth of Field
+option.DOF_ENABLED=Depth of Field
+option.DOF_ENABLED.comment=Enables thin lens depth of field simulation. Out-of-focus areas will appear blurred based on camera settings.
+
+option.DOF_AUTOFOCUS=Autofocus
+option.DOF_AUTOFOCUS.comment=Automatically focuses on the object at the center of the screen. When disabled, the manual focus distance is used instead.
+
+option.DOF_FOCAL_LENGTH=Focal Length
+option.DOF_FOCAL_LENGTH.comment=Camera lens focal length. Longer focal lengths produce a narrower field of view and stronger background blur. Common values: 24mm wide-angle, 50mm normal, 85mm portrait, 200mm telephoto.
+suffix.DOF_FOCAL_LENGTH=mm
+
+option.DOF_FSTOP=Aperture
+option.DOF_FSTOP.comment=Lens f-stop number. Lower values mean a wider aperture, producing shallower depth of field and more bokeh blur. Higher values keep more of the scene in focus.
+prefix.DOF_FSTOP=f/
+
+option.DOF_FOCUS_DISTANCE=Focus Distance
+option.DOF_FOCUS_DISTANCE.comment=Manual focus distance in blocks. Only used when autofocus is disabled.
+suffix.DOF_FOCUS_DISTANCE=m
+
+option.DOF_SENSOR_WIDTH=Sensor Size
+option.DOF_SENSOR_WIDTH.comment=Camera sensor width. Larger sensors produce shallower depth of field at equivalent framing. 23.5mm = APS-C, 36mm = Full Frame, 44mm = Medium Format.
+suffix.DOF_SENSOR_WIDTH=mm
+value.DOF_SENSOR_WIDTH.23.5=APS-C (23.5)
+value.DOF_SENSOR_WIDTH.28.7=APS-H (28.7)
+value.DOF_SENSOR_WIDTH.36.0=Full Frame (36)
+value.DOF_SENSOR_WIDTH.44.0=Medium Format (44)
+value.DOF_SENSOR_WIDTH.53.0=Large Format (53)
+
+option.DOF_BLADES=Aperture Blades
+option.DOF_BLADES.comment=Number of aperture blades. Controls the shape of out-of-focus highlights (bokeh). 0 = perfectly circular, 5-7 = common in real lenses, higher values approach a circle.
+value.DOF_BLADES.0=Circle
+

@@ -261,8 +261,4 @@ void main() {
    #endif
 
    imageStore(colorimg0, coord, vec4(color, 1.0));
-
-   if (control.lastTextureReloadCount != textureReloadCount) {
-      control.lastTextureReloadCount = textureReloadCount;
-   }
 }

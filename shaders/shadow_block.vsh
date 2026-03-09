@@ -5,6 +5,8 @@ in vec4 at_midBlock;
 
 uniform mat4 shadowModelViewInverse;
 uniform sampler2D gtexture;
+uniform sampler2D normals;
+uniform sampler2D specular;
 uniform int gtextureId = 0;
 
 #define AS_VERTEX
@@ -14,6 +16,8 @@ uniform int gtextureId = 0;
 
 void main() {
    gl_Position = vec4(vec3(11.0), 1.0);
+
+   if (control.sceneFrozen != 0u) return;
 
    vec3 shadowViewSpacePos = (gl_ModelViewMatrix * vec4(gl_Vertex.xyz, 1.0)).xyz;
    vec3 playerSpacePos = (shadowModelViewInverse * vec4(shadowViewSpacePos, 1.0)).xyz;
@@ -38,7 +42,11 @@ void main() {
    isNew = subgroupBroadcastFirst(isNew);
 
    if (isNew && slot != INVALID_ID) {
-      copyTexture(textureMap[slot].baseOffset, tSize, gtexture);
+      #ifdef ENTITY_PBR
+      copyTextureWithPBR(textureMap[slot].baseOffset, gtexture, normals, specular, tSize, textureSize(normals, 0), textureSize(specular, 0));
+      #else
+      copyTexture(textureMap[slot].baseOffset, gtexture, tSize);
+      #endif
    }
 
    textureID = (slot == INVALID_ID) ? 0 : slot + 1u;

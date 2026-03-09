@@ -14,6 +14,8 @@ in vec3 vColor[];
 flat in uint vBlockId[];
 
 void main() {
+   if (control.sceneFrozen != 0u) return;
+
    int i0 = 0;
    int i1 = 1;
    int i2 = 2;

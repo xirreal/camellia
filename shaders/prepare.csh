@@ -9,6 +9,20 @@ layout(local_size_x = 64) in;
 
 void main() {
    uint gID = gl_GlobalInvocationID.x;
+
+   if (control.sceneFrozen != 0u) {
+      if (gID == 0u) {
+         control.sortDispatchX = 0u;
+         control.sortDispatchY = 0u;
+         control.sortDispatchZ = 0u;
+
+         control.hplocDispatchX = 0u;
+         control.hplocDispatchY = 0u;
+         control.hplocDispatchZ = 0u;
+      }
+      return;
+   }
+
    uint numQuads = 0;
    vec3 sceneMin;
    vec3 sceneMax;

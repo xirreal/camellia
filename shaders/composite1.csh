@@ -12,14 +12,16 @@ uniform mat4 gbufferModelViewInverse;
 uniform vec3 shadowLightPosition;
 uniform int frameCounter;
 uniform bool hideGUI;
-uniform bool firstPersonCamera;
-
 uniform sampler2D colortex5;
 uniform sampler2D blockAtlas;
 uniform sampler2D normalAtlas;
 uniform sampler2D specularAtlas;
 
+uniform int randomSeed;
+
 uniform float near;
+
+const float DOF_AUTOFOCUS_SPEED = 10.0; // exponential smoothing speed
 
 #include "/lib/storage.glsl"
 #include "/lib/hploc.glsl"
@@ -28,10 +30,22 @@ uniform float near;
 
 const int MAX_BOUNCES = 4;
 const float SHADOW_MAX_DIST = 256.0;
-const float SKY_BRIGHTNESS = 0.75;
-const float SUN_BRIGHTNESS = 5.0;
+const float SKY_BRIGHTNESS = 1.6;
+const float SUN_BRIGHTNESS = 20.0;
 const float PI = 3.14159265359;
-const float GLASS_IOR = 1.5;
+
+// ---- Depth of Field Settings ----
+#define DOF_ENABLED
+#define DOF_AUTOFOCUS
+#define DOF_FOCAL_LENGTH 35.0   //[17.0 24.0 35.0 50.0 85.0 105.0 135.0 200.0 250.0 300.0]
+#define DOF_FSTOP 16.0           //[1.4 1.8 2.0 2.4 2.8 4.0 5.6 8.0 11.0 16.0]
+#define DOF_FOCUS_DISTANCE 5.0  //[1.0 2.0 3.0 4.0 5.0 7.0 10.0 15.0 20.0 30.0 50.0 100.0]
+#define DOF_SENSOR_WIDTH 36.0   //[23.5 28.7 36.0 44.0 53.0]
+#define DOF_BLADES 0            //[0 3 4 5 6 7 8 9 10 11 12 13 14 15 16]
+
+// Cauchy's equation IOR per wavelength (crown glass-like dispersion)
+// λ_R ≈ 650nm, λ_G ≈ 550nm, λ_B ≈ 450nm
+const vec3 GLASS_IOR_RGB = vec3(1.510, 1.515, 1.525);
 
 void computeTangentBasis(uint quadID, int triIndex, vec3 geomNormal, out vec3 tangent, out vec3 bitangent) {
    vec3 p0, p1, p2, p3;
@@ -59,30 +73,37 @@ void computeTangentBasis(uint quadID, int triIndex, vec3 geomNormal, out vec3 ta
 
 vec3 labPBRMetalF0(int metalID);
 
-void decodeLabPBR(vec2 uv, vec3 geomNormal, uint quadID, int triIndex, uint textureID, vec3 baseColor, out vec3 normal, out float roughness, out float metallic, out vec3 F0, out float emission, out float ao) {
+void decodeLabPBR(vec2 uv, vec3 geomNormal, uint quadID, int triIndex, uint textureID, vec3 baseColor, out vec3 normal, out float roughness, out float metallic, out vec3 F0, out float emission, out float ao, out float sss) {
+   vec4 nTexSample;
+   vec4 spec;
+
    if (textureID != 0u) {
+      #ifdef ENTITY_PBR
+      nTexSample = sampleEntityNormal(textureID, uv);
+      spec = sampleEntitySpecular(textureID, uv);
+      #else
       normal = geomNormal;
       roughness = 1.0;
       metallic = 0.0;
       F0 = vec3(0.04);
       emission = 0.0;
       ao = 1.0;
+      sss = 0.0;
       return;
+      #endif
+   } else {
+      nTexSample = texture(normalAtlas, uv);
+      spec = texture(specularAtlas, uv);
    }
 
-   vec4 nTexSample = texture(normalAtlas, uv);
    vec2 nxy = nTexSample.rg * 2.0 - 1.0;
-   nxy.y = -nxy.y;
-   float nz = sqrt(max(1.0 - dot(nxy, nxy), 0.0));
-   vec3 nTex = vec3(nxy, nz);
+   vec3 nTex = normalize(vec3(nxy, sqrt(max(1.0 - dot(nxy, nxy), 0.00001))));
    ao = nTexSample.b;
 
    vec3 tangent;
    vec3 bitangent;
    computeTangentBasis(quadID, triIndex, geomNormal, tangent, bitangent);
    normal = normalize(tangent * nTex.x + bitangent * nTex.y + geomNormal * nTex.z);
-
-   vec4 spec = texture(specularAtlas, uv);
    float perceptualSmoothness = spec.r;
    roughness = pow(1.0 - perceptualSmoothness, 2.0);
 
@@ -90,7 +111,7 @@ void decodeLabPBR(vec2 uv, vec3 geomNormal, uint quadID, int triIndex, uint text
    float g255 = g * 255.0;
    if (g255 <= 229.5) {
       metallic = 0.0;
-      F0 = vec3(clamp(g, 0.0, 229.0 / 255.0));
+      F0 = vec3(clamp(g, 0.0, 0.6));
    } else {
       metallic = 1.0;
       int metalID = int(g255 + 0.5);
@@ -102,14 +123,31 @@ void decodeLabPBR(vec2 uv, vec3 geomNormal, uint quadID, int triIndex, uint text
    }
 
    emission = (spec.a >= (254.5 / 255.0)) ? 0.0 : spec.a;
+
+   float b255 = spec.b * 255.0;
+   if (b255 >= 64.5) {
+      sss = (b255 - 65.0) / 190.0;
+   } else {
+      sss = 0.0;
+   }
 }
 
 // ---- RNG ----
 
 uint rngState;
 
-void initRNG(ivec2 coord, int frame) {
-   rngState = uint(coord.x * 1973 + coord.y * 9277 + frame * 26699) | 1u;
+uint hash(uint x) {
+   x ^= x >> 16;
+   x *= 0x7feb352dU;
+   x ^= x >> 15;
+   x *= 0x846ca68bU;
+   x ^= x >> 16;
+   return x;
+}
+
+void initRNG(ivec2 coord, int frame, int _seed) {
+   uint seed = uint(coord.x) + uint(coord.y) * 4096u + uint(frame) * 16777216u + uint(_seed) * 65536u;
+   rngState = seed ^ hash(seed);
 }
 
 uint pcgHash() {
@@ -167,25 +205,25 @@ vec3 conductorF0(vec3 n, vec3 k) {
 }
 
 const vec3 METAL_N[8] = vec3[8](
-   vec3(2.9114, 2.9497, 2.5845),   // 230: iron
-   vec3(0.18299, 0.42108, 1.3734), // 231: gold
-   vec3(1.3456, 0.96521, 0.61722), // 232: aluminum
-   vec3(3.1071, 3.1812, 2.3230),   // 233: chrome
-   vec3(0.27105, 0.67693, 1.3164), // 234: copper
-   vec3(1.9100, 1.8300, 1.4400),   // 235: lead
-   vec3(2.3757, 2.0847, 1.8453),   // 236: platinum
-   vec3(0.15943, 0.14512, 0.13547) // 237: silver
-);
+      vec3(2.9114, 2.9497, 2.5845), // 230: iron
+      vec3(0.18299, 0.42108, 1.3734), // 231: gold
+      vec3(1.3456, 0.96521, 0.61722), // 232: aluminum
+      vec3(3.1071, 3.1812, 2.3230), // 233: chrome
+      vec3(0.27105, 0.67693, 1.3164), // 234: copper
+      vec3(1.9100, 1.8300, 1.4400), // 235: lead
+      vec3(2.3757, 2.0847, 1.8453), // 236: platinum
+      vec3(0.15943, 0.14512, 0.13547) // 237: silver
+   );
 const vec3 METAL_K[8] = vec3[8](
-   vec3(3.0893, 2.9318, 2.7670),
-   vec3(3.4242, 2.3459, 1.7704),
-   vec3(7.4746, 6.3995, 5.3031),
-   vec3(3.3314, 3.3291, 3.1350),
-   vec3(3.6092, 2.6248, 2.2921),
-   vec3(3.5100, 3.4000, 3.1800),
-   vec3(4.2655, 3.7153, 3.1365),
-   vec3(3.9291, 3.1900, 2.3808)
-);
+      vec3(3.0893, 2.9318, 2.7670),
+      vec3(3.4242, 2.3459, 1.7704),
+      vec3(7.4746, 6.3995, 5.3031),
+      vec3(3.3314, 3.3291, 3.1350),
+      vec3(3.6092, 2.6248, 2.2921),
+      vec3(3.5100, 3.4000, 3.1800),
+      vec3(4.2655, 3.7153, 3.1365),
+      vec3(3.9291, 3.1900, 2.3808)
+   );
 
 vec3 labPBRMetalF0(int metalID) {
    int idx = metalID - 230;
@@ -268,37 +306,125 @@ void main() {
    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
    if (coord.x >= int(viewWidth) || coord.y >= int(viewHeight)) return;
 
-   initRNG(coord, frameCounter);
+   initRNG(coord, frameCounter, randomSeed);
 
    vec2 jitter = vec2(rand(), rand()) - 0.5;
    vec2 rawUV = (vec2(coord) + 0.5) / vec2(viewWidth, viewHeight);
    vec2 uv = (vec2(coord) + 0.5 + jitter) / vec2(viewWidth, viewHeight);
    vec2 ndc = uv * 2.0 - 1.0;
 
+   mat4 projInv = hideGUI ? control.frozenProjInv : gbufferProjectionInverse;
+   mat4 mvInv = hideGUI ? control.frozenModelViewInv : gbufferModelViewInverse;
+   vec3 lightPos = hideGUI ? control.frozenLightPos.xyz : shadowLightPosition;
+
    vec4 clipDir = vec4(ndc, 1.0, 1.0);
-   vec4 viewDir = gbufferProjectionInverse * clipDir;
+   vec4 viewDir = projInv * clipDir;
    viewDir.xyz /= viewDir.w;
-   vec3 rd = normalize((mat3(gbufferModelViewInverse) * viewDir.xyz));
-   vec3 ro = gbufferModelViewInverse[3].xyz;
+   vec3 rd = normalize((mat3(mvInv) * viewDir.xyz));
+   vec3 ro = mvInv[3].xyz;
 
-   // Skip player model AABB in first person
-   if (firstPersonCamera) {
-      vec3 extents = vec3(0.6);
-      vec3 safeRd = rd + step(abs(rd), vec3(1e-8)) * 1e-8;
-      vec3 t1 = (-extents - ro) / safeRd;
-      vec3 t2 = (extents - ro) / safeRd;
-      vec3 tMax = max(t1, t2);
-      float tExit = min(tMax.x, min(tMax.y, tMax.z));
+   // ---- Autofocus: trace center ray and update with exponential smoothing ----
+   #if defined(DOF_ENABLED) && defined(DOF_AUTOFOCUS)
+   {
+      ivec2 center = ivec2(int(viewWidth) / 2, int(viewHeight) / 2);
+      if (coord == center) {
+         // Trace center pinhole ray through BVH
+         vec2 centerNDC = vec2(center + 0.5) / vec2(viewWidth, viewHeight) * 2.0 - 1.0;
+         vec4 centerClip = vec4(centerNDC, 1.0, 1.0);
+         vec4 centerView = projInv * centerClip;
+         centerView.xyz /= centerView.w;
+         vec3 centerRd = normalize(mat3(mvInv) * centerView.xyz);
+         vec3 centerRo = mvInv[3].xyz;
 
-      if (tExit > 0.0) {
-         ro += rd * (tExit + 0.001);
+         TraceResult centerHit = traceBVH(centerRo, centerRd, true);
+         float newDist = centerHit.hit ? centerHit.t : 100.0;
+
+         float prev = control.autofocusDist;
+         if (prev <= 0.0) {
+            control.autofocusDist = newDist;
+         } else {
+            float alpha = 1.0 - exp(-DOF_AUTOFOCUS_SPEED / 60.0);
+            control.autofocusDist = mix(prev, newDist, alpha);
+         }
       }
    }
+   #endif
 
-   vec3 lightDir = normalize((gbufferModelViewInverse * vec4(0.01 * shadowLightPosition, 0.0)).xyz);
+   // ---- Thin-Lens Depth of Field ----
+   #ifdef DOF_ENABLED
+   {
+      // Camera parameters (mm -> meters -> blocks; 1 block ≈ 1 m)
+      float focalLength_m = DOF_FOCAL_LENGTH * 0.001;
+      float sensorWidth_m = DOF_SENSOR_WIDTH * 0.001;
+      float apertureDiam = focalLength_m / DOF_FSTOP;
+      float lensRadius = apertureDiam * 0.5;
+
+      // Focus distance in world units (blocks)
+      float focusDist;
+      #ifdef DOF_AUTOFOCUS
+      focusDist = max(control.autofocusDist, 0.1);
+      #else
+      focusDist = DOF_FOCUS_DISTANCE;
+      #endif
+
+      focusDist = max(focusDist, 0.1);
+
+      // Focal plane point along the pinhole ray
+      vec3 focalPoint = ro + rd * (focusDist / max(dot(rd, normalize(mat3(mvInv) * vec3(0.0, 0.0, -1.0))), 0.001));
+
+      // Scale lens radius: map physical lens to world-space
+      // Account for mismatch between physical camera FOV and Minecraft's actual FOV
+      float physicalHalfTanFOV = sensorWidth_m / (2.0 * focalLength_m);
+      float mcHalfTanFOV = projInv[0][0]; // = 1/P[0][0] = tan(halfFOV_x)
+      float worldLensRadius = lensRadius * mcHalfTanFOV / physicalHalfTanFOV;
+
+      // Sample point on aperture
+      float r1 = rand();
+      float r2 = rand();
+      float angle, radius;
+      #if DOF_BLADES > 2
+      {
+         // Uniform sampling of a regular polygon with DOF_BLADES sides
+         float bladeAngle = 2.0 * PI / float(DOF_BLADES);
+         // Pick a random triangle sector
+         int sector = int(r1 * float(DOF_BLADES));
+         float sectorFrac = r1 * float(DOF_BLADES) - float(sector);
+         // Uniform sample within the triangle (two barycentric coords)
+         float u = sqrt(sectorFrac);
+         float v = r2 * u;
+         u = 1.0 - u;
+         // Triangle vertices: center (0,0), and two polygon corners
+         float a0 = float(sector) * bladeAngle;
+         float a1 = a0 + bladeAngle;
+         float px = u * cos(a0) + v * cos(a1);
+         float py = u * sin(a0) + v * sin(a1);
+         // Convert to polar for the offset below
+         angle = atan(py, px);
+         radius = sqrt(px * px + py * py) * worldLensRadius;
+      }
+      #else
+      {
+         // Circular aperture (0 blades = perfect circle)
+         angle = 2.0 * PI * r1;
+         radius = sqrt(r2) * worldLensRadius;
+      }
+      #endif
+
+      // Lens offset in camera-local right/up
+      vec3 camRight = normalize(vec3(mvInv[0]));
+      vec3 camUp = normalize(vec3(mvInv[1]));
+      vec3 lensOffset = camRight * (cos(angle) * radius) + camUp * (sin(angle) * radius);
+
+      ro += lensOffset;
+      rd = normalize(focalPoint - ro);
+   }
+   #endif
+
+   vec3 lightDir = normalize((mvInv * vec4(0.01 * lightPos, 0.0)).xyz);
 
    // Primary ray — reused as first bounce hit to avoid tracing the same ray twice
-   TraceResult primaryHit = traceBVH(ro, rd);
+   // Skip player model on primary ray (visible in reflections/bounces via default skipPlayer=false)
+   TraceResult primaryHit = traceBVH(ro, rd, true);
 
    if (!primaryHit.hit) {
       vec3 sky = getSkyColor(rd, lightDir);
@@ -377,7 +503,8 @@ void main() {
       vec3 F0;
       float emissionMap;
       float ao;
-      decodeLabPBR(bounceHit.uv, bounceHit.normal, bounceHit.quadID, bounceHit.triIndex, bounceHit.textureID, bounceAlbedo, shadeNormal, roughness, metallic, F0, emissionMap, ao);
+      float sssAmount;
+      decodeLabPBR(bounceHit.uv, bounceHit.normal, bounceHit.quadID, bounceHit.triIndex, bounceHit.textureID, bounceAlbedo, shadeNormal, roughness, metallic, F0, emissionMap, ao, sssAmount);
 
       vec3 diffuseAlbedo = bounceAlbedo * ao;
       vec3 hitPoint = origin + bounceDir * bounceHit.t;
@@ -400,9 +527,16 @@ void main() {
          float opacity = glassTexColor.a;
          vec3 glassColor = pow(glassTexColor.rgb * glassTexColor.rgb * bounceHit.vertexData.rgb, vec3(2.2));
 
-         float eta = insideMedium ? (GLASS_IOR / 1.0) : (1.0 / GLASS_IOR);
+         // Stochastic wavelength selection for dispersion
+         int wl = int(rand() * 3.0); // 0=R, 1=G, 2=B
+         wl = min(wl, 2);
+         float channelIOR = GLASS_IOR_RGB[wl];
+         vec3 channelMask = vec3(0.0);
+         channelMask[wl] = 3.0; // weight by 3 to compensate 1/3 selection probability
+
+         float eta = insideMedium ? (channelIOR / 1.0) : (1.0 / channelIOR);
          float cosI = abs(dot(bounceDir, N));
-         float fresnel = fresnelSchlick(cosI, GLASS_IOR);
+         float fresnel = fresnelSchlick(cosI, channelIOR);
 
          // Blend between glass (refract/reflect) and diffuse based on texture alpha
          float glassProb = 1.0 - opacity;
@@ -416,14 +550,12 @@ void main() {
             bool tir = dot(refracted, refracted) < 0.001;
 
             if (tir || rand() < fresnel) {
-               // Reflection (Fresnel or TIR)
+               // Reflection (Fresnel or TIR) — no dispersion on reflection
                nextDir = reflect(bounceDir, N);
 
                if (insideMedium) {
-                  // Ray stays inside the medium — absorb and keep medium state
                   vec3 absorption = -log(max(mediumColor, vec3(0.01)));
                   throughput *= exp(-absorption * bounceHit.t);
-                  // Offset into the medium (N points inward when insideMedium)
                   hitPos = hitPoint - N * 0.001;
                   hitNormal = -N;
                } else {
@@ -431,7 +563,9 @@ void main() {
                   hitNormal = N;
                }
             } else {
+               // Refraction — apply dispersion via channel mask
                nextDir = refracted;
+               throughput *= channelMask;
 
                if (insideMedium) {
                   vec3 absorption = -log(max(mediumColor, vec3(0.01)));
@@ -446,7 +580,6 @@ void main() {
                hitNormal = -N;
             }
             hasFixedDir = true;
-            shadowBias = 0.001;
             continue;
          }
          // else: fall through to diffuse path below
@@ -460,16 +593,21 @@ void main() {
       }
 
       // Emissive contribution
-      float emission = max(bounceHit.vertexData.a, emissionMap);
+      #ifdef MC_TEXTURE_FORMAT_LAB_PBR_1_3
+      float emission = emissionMap * 3.0;
+      #else
+      float emission = pow(length(bounceAlbedo * 1.5), 2.2) * bounceHit.vertexData.a;
+      #endif
       if (emission > 0.0) {
-         float emitter = pow(length(bounceAlbedo * 1.5), 5.6) * 0.5;
-         radiance += throughput * bounceAlbedo * emitter * emission * 2.0;
+         radiance += throughput * bounceAlbedo * emission * 2.0;
       }
 
       // Direct lighting: NEE with tinted soft shadows
       vec3 shadowOrigin = hitPoint + N * shadowBias;
-      float NdotL = max(dot(N, lightDir), 0.0);
-      if (NdotL > 0.0) {
+      float NdotL_direct = dot(N, lightDir);
+      bool frontLit = NdotL_direct > 0.0;
+      bool backLit = sssAmount > 0.0 && NdotL_direct < 0.0;
+      if (frontLit || backLit) {
          vec3 up = abs(lightDir.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
          vec3 tangent = normalize(cross(up, lightDir));
          vec3 bitangent = cross(lightDir, tangent);
@@ -477,13 +615,24 @@ void main() {
          float r = sqrt(rand()) * 0.007;
          float theta = rand() * 2.0 * PI;
          vec3 sampleDir = normalize(lightDir + (tangent * cos(theta) + bitangent * sin(theta)) * r);
-         float sNdotL = max(dot(N, sampleDir), 0.0);
+         float sNdotL = dot(N, sampleDir);
 
-         if (sNdotL > 0.0) {
+         if (frontLit && sNdotL > 0.0) {
             vec3 shadowTint = traceShadowTinted(shadowOrigin, sampleDir, SHADOW_MAX_DIST);
             if (shadowTint != vec3(0.0)) {
                vec3 brdf = evalBRDF(N, V, sampleDir, diffuseAlbedo, roughness, metallic, F0);
-               radiance += surfaceThroughput * brdf * sNdotL * SUN_BRIGHTNESS * vec3(0.9, 0.93, 1.0) * shadowTint;
+               radiance += surfaceThroughput * brdf * sNdotL * SUN_BRIGHTNESS * vec3(1.0, 0.95, 0.8) * shadowTint;
+            }
+         }
+
+         // SSS: light scattering through from the back side
+         if (backLit) {
+            vec3 sssOrigin = hitPoint - N * shadowBias;
+            vec3 shadowTint = traceShadowTinted(sssOrigin, sampleDir, SHADOW_MAX_DIST);
+            if (shadowTint != vec3(0.0)) {
+               float wrap = max(-sNdotL, 0.0);
+               vec3 sssColor = diffuseAlbedo * (1.0 - metallic);
+               radiance += surfaceThroughput * sssColor * (sssAmount * wrap * (1.0 / PI)) * SUN_BRIGHTNESS * vec3(1.0, 0.95, 0.8) * shadowTint;
             }
          }
       }
@@ -507,7 +656,7 @@ void main() {
          vec3 specBRDF = (D * G) * F / max(4.0 * NdotV * NdotL, 1e-5);
 
          float pdf = D * NdotH / max(4.0 * VdotH, 1e-5);
-         throughput *= specBRDF * NdotL / max(pdf, 1e-5);
+         throughput *= specBRDF * NdotL / max(pdf * specularProb, 1e-5);
 
          nextDir = L;
          hasFixedDir = true;
@@ -525,7 +674,7 @@ void main() {
          vec3 diffBRDF = diffuseHammon(diffuseColor, roughness, NdotV, NdotL, max(dot(L, H), 0.0)) * (vec3(1.0) - F);
 
          float pdf = NdotL * (1.0 / PI);
-         throughput *= diffBRDF * NdotL / max(pdf, 1e-5);
+         throughput *= diffBRDF * NdotL / max(pdf * (1.0 - specularProb), 1e-5);
 
          nextDir = L;
          hasFixedDir = true;

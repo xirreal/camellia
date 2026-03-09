@@ -16,6 +16,7 @@ void main() {
       control.textureEntries = 0u;
       textureDataOffset = 0u;
       control.lastTextureReloadCount = textureReloadCount;
+      control.textureReloadDelay = 0u;
    }
 
    if (id < MAX_TEXTURES) {
