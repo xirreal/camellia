@@ -8,6 +8,8 @@ uniform vec3 shadowLightPosition;
 uniform bool firstPersonCamera;
 uniform vec3 cameraPosition;
 
+uniform int frameCounter;
+
 #define QUAD_WRITE
 #include "/lib/storage.glsl"
 #include "/lib/textures.glsl"
@@ -37,11 +39,8 @@ void main() {
       }
    }
 
-   // When hideGUI is true, freeze the scene — skip all resets so the
-   // previous frame's geometry and BVH stay intact for accumulation.
-   if (hideGUI) {
+   if (hideGUI && frameCounter > 5) {
       if (id == 0) {
-         // Save camera state on the transition frame (unfrozen -> frozen)
          if (control.sceneFrozen == 0u) {
             control.frozenProjInv = gbufferProjectionInverse;
             control.frozenModelViewInv = gbufferModelViewInverse;

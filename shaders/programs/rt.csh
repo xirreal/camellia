@@ -8,7 +8,6 @@ uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelViewInverse;
 uniform vec3 shadowLightPosition;
 uniform int frameCounter;
-uniform bool hideGUI;
 uniform sampler2D colortex5;
 uniform sampler2D blockAtlas;
 uniform sampler2D normalAtlas;

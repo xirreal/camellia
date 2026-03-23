@@ -6,10 +6,10 @@ layout(points, max_vertices = 0) out;
 #define QUAD_WRITE
 #include "/lib/storage.glsl"
 
-in vec3 vPlayerPos[];
-in vec2 vCoord[];
-in float vEmission[];
-in vec3 vColor[];
+flat in vec3 vPlayerPos[];
+flat in vec2 vCoord[];
+flat in float vEmission[];
+flat in vec3 vColor[];
 flat in uint vBlockId[];
 
 void main() {

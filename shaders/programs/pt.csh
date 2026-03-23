@@ -9,7 +9,6 @@ uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelViewInverse;
 uniform vec3 shadowLightPosition;
 uniform int frameCounter;
-uniform bool hideGUI;
 uniform sampler2D colortex5;
 uniform sampler2D blockAtlas;
 uniform sampler2D normalAtlas;
@@ -318,9 +317,9 @@ void main() {
    vec2 uv = (vec2(coord) + 0.5 + jitter) / vec2(viewWidth, viewHeight);
    vec2 ndc = uv * 2.0 - 1.0;
 
-   mat4 projInv = hideGUI ? control.frozenProjInv : gbufferProjectionInverse;
-   mat4 mvInv = hideGUI ? control.frozenModelViewInv : gbufferModelViewInverse;
-   vec3 lightPos = hideGUI ? control.frozenLightPos.xyz : shadowLightPosition;
+   mat4 projInv = control.sceneFrozen == 1u ? control.frozenProjInv : gbufferProjectionInverse;
+   mat4 mvInv = control.sceneFrozen == 1u ? control.frozenModelViewInv : gbufferModelViewInverse;
+   vec3 lightPos = control.sceneFrozen == 1u ? control.frozenLightPos.xyz : shadowLightPosition;
 
    vec4 clipDir = vec4(ndc, 1.0, 1.0);
    vec4 viewDir = projInv * clipDir;
@@ -417,7 +416,7 @@ void main() {
       float frameCount = prev.a;
       vec3 accumulated;
       float newCount;
-      if (hideGUI == false) {
+      if (control.sceneFrozen != 1u) {
          accumulated = sky;
          newCount = 1.0;
       } else {
@@ -509,7 +508,7 @@ void main() {
             float luma = dot(waterTintRaw, vec3(0.2126, 0.7152, 0.0722));
             vec3 waterTint = mix(waterTintRaw, vec3(luma), WATER_TINT_DESAT);
 
-            vec3 waveN = waterWaveNormal(hitPoint + (hideGUI ? control.frozenCameraPos.xyz : cameraPosition), 0.0, WATER_WAVE_STRENGTH);
+            vec3 waveN = waterWaveNormal(hitPoint + (control.sceneFrozen == 1u ? control.frozenCameraPos.xyz : cameraPosition), 0.0, WATER_WAVE_STRENGTH);
             float sign = dot(N, vec3(0.0, 1.0, 0.0)) >= 0.0 ? 1.0 : -1.0;
             N = normalize(vec3(waveN.x * sign, waveN.y * sign, waveN.z * sign));
 
@@ -731,7 +730,7 @@ void main() {
    vec3 accumulated;
    float newCount;
 
-   if (hideGUI == false) {
+   if (control.sceneFrozen != 1u) {
       accumulated = radiance;
       newCount = 1.0;
    } else {

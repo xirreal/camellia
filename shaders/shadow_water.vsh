@@ -8,8 +8,18 @@ uniform mat4 shadowModelViewInverse;
 #define QUAD_WRITE
 #include "/lib/storage.glsl"
 
+#ifdef MC_VENDOR_NVIDIA
+out gl_PerVertex {
+   flat float16_t gl_Position;
+};
+#endif
+
 void main() {
-   gl_Position = vec4(vec3(11.0), 1.0);
+   #ifdef MC_VENDOR_NVIDIA
+   gl_Position = float16_t(0.0 / 0.0);
+   #else
+   gl_Position = vec4(0.0 / 0.0);
+   #endif
 
    if (control.sceneFrozen != 0u) return;
    uint blockId = uint(mc_Entity.x);

@@ -5,15 +5,25 @@ in vec4 at_midBlock;
 
 uniform mat4 shadowModelViewInverse;
 
-out vec3 vPlayerPos;
-out vec3 vNormal;
-out vec2 vCoord;
-out float vEmission;
-out vec3 vColor;
+flat out vec3 vPlayerPos;
+flat out vec3 vNormal;
+flat out vec2 vCoord;
+flat out float vEmission;
+flat out vec3 vColor;
 flat out uint vBlockId;
 
+#ifdef MC_VENDOR_NVIDIA
+out gl_PerVertex {
+   flat float16_t gl_Position;
+};
+#endif
+
 void main() {
-   gl_Position = vec4(vec3(11.0), 1.0);
+   #ifdef MC_VENDOR_NVIDIA
+   gl_Position = float16_t(0.0 / 0.0);
+   #else
+   gl_Position = vec4(0.0 / 0.0);
+   #endif
 
    vec3 shadowViewSpacePos = (gl_ModelViewMatrix * vec4(gl_Vertex.xyz, 1.0)).xyz;
    vPlayerPos = (shadowModelViewInverse * vec4(shadowViewSpacePos, 1.0)).xyz;
