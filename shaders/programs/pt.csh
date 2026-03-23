@@ -22,8 +22,6 @@ uniform float frameTimeCounter;
 
 uniform float near;
 
-const float DOF_AUTOFOCUS_SPEED = 10.0; // exponential smoothing speed
-
 #include "/lib/storage.glsl"
 #include "/lib/hploc.glsl"
 #include "/lib/encoding.glsl"
@@ -36,7 +34,6 @@ const float SKY_BRIGHTNESS = 1.6;
 const float SUN_BRIGHTNESS = 20.0;
 const float PI = 3.14159265359;
 
-// ---- Depth of Field Settings ----
 #define DOF_ENABLED
 #define DOF_AUTOFOCUS
 #define DOF_FOCAL_LENGTH 35.0   //[17.0 24.0 35.0 50.0 85.0 105.0 135.0 200.0 250.0 300.0]
@@ -45,14 +42,11 @@ const float PI = 3.14159265359;
 #define DOF_SENSOR_WIDTH 36.0   //[23.5 28.7 36.0 44.0 53.0]
 #define DOF_BLADES 0            //[0 3 4 5 6 7 8 9 10 11 12 13 14 15 16]
 
-// Cauchy's equation IOR per wavelength (crown glass-like dispersion)
-// λ_R ≈ 650nm, λ_G ≈ 550nm, λ_B ≈ 450nm
 const vec3 GLASS_IOR_RGB = vec3(1.510, 1.515, 1.525);
 
-// Water IOR (no dispersion — single value)
 const float WATER_IOR = 1.33;
-const float WATER_TINT_DESAT = 1.0; // 0 = full color, 1 = grayscale
-const float WATER_WAVE_STRENGTH = 0.1; // wave normal perturbation strength
+const float WATER_TINT_DESAT = 1.0;
+const float WATER_WAVE_STRENGTH = 0.1;
 
 void computeTangentBasis(uint quadID, int triIndex, vec3 geomNormal, out vec3 tangent, out vec3 bitangent) {
    vec3 p0, p1, p2, p3;
@@ -179,8 +173,6 @@ float rand() {
    return float(pcgHash()) / 4294967295.0;
 }
 
-// ---- Sampling ----
-
 vec3 sampleCosineHemisphere(vec3 normal) {
    float r1 = rand();
    float r2 = rand();
@@ -188,15 +180,12 @@ vec3 sampleCosineHemisphere(vec3 normal) {
    float sinTheta = sqrt(r2);
    float cosTheta = sqrt(1.0 - r2);
 
-   // Build tangent frame
    vec3 up = abs(normal.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
    vec3 tangent = normalize(cross(up, normal));
    vec3 bitangent = cross(normal, tangent);
 
    return normalize(tangent * cos(phi) * sinTheta + bitangent * sin(phi) * sinTheta + normal * cosTheta);
 }
-
-// ---- Fresnel ----
 
 float fresnelSchlick(float cosTheta, float ior) {
    float r0 = (1.0 - ior) / (1.0 + ior);
@@ -310,8 +299,6 @@ vec3 sampleGGX(vec3 N, float roughness) {
    return normalize(tangent * (cos(phi) * sinTheta) + bitangent * (sin(phi) * sinTheta) + N * cosTheta);
 }
 
-// ---- Shading ----
-
 vec3 getSkyColor(vec3 rd, vec3 lightDir) {
    float sun = max(dot(rd, lightDir), 0.0);
    float sky = max(rd.y * 0.5 + 0.5, 0.0);
@@ -341,12 +328,10 @@ void main() {
    vec3 rd = normalize((mat3(mvInv) * viewDir.xyz));
    vec3 ro = mvInv[3].xyz;
 
-   // ---- Autofocus: trace center ray and update with exponential smoothing ----
    #if defined(DOF_ENABLED) && defined(DOF_AUTOFOCUS)
    {
       ivec2 center = ivec2(int(viewWidth) / 2, int(viewHeight) / 2);
       if (coord == center) {
-         // Trace center pinhole ray through BVH
          vec2 centerNDC = vec2(center + 0.5) / vec2(viewWidth, viewHeight) * 2.0 - 1.0;
          vec4 centerClip = vec4(centerNDC, 1.0, 1.0);
          vec4 centerView = projInv * centerClip;
@@ -362,16 +347,13 @@ void main() {
    }
    #endif
 
-   // ---- Thin-Lens Depth of Field ----
    #ifdef DOF_ENABLED
    {
-      // Camera parameters (mm -> meters -> blocks; 1 block ≈ 1 m)
       float focalLength_m = DOF_FOCAL_LENGTH * 0.001;
       float sensorWidth_m = DOF_SENSOR_WIDTH * 0.001;
       float apertureDiam = focalLength_m / DOF_FSTOP;
       float lensRadius = apertureDiam * 0.5;
 
-      // Focus distance in world units (blocks)
       float focusDist;
       #ifdef DOF_AUTOFOCUS
       focusDist = max(control.autofocusDist, 0.1);
@@ -381,48 +363,40 @@ void main() {
 
       focusDist = max(focusDist, 0.1);
 
-      // Focal plane point along the pinhole ray
       vec3 focalPoint = ro + rd * (focusDist / max(dot(rd, normalize(mat3(mvInv) * vec3(0.0, 0.0, -1.0))), 0.001));
 
-      // Scale lens radius: map physical lens to world-space
-      // Account for mismatch between physical camera FOV and Minecraft's actual FOV
       float physicalHalfTanFOV = sensorWidth_m / (2.0 * focalLength_m);
       float mcHalfTanFOV = projInv[0][0]; // = 1/P[0][0] = tan(halfFOV_x)
       float worldLensRadius = lensRadius * mcHalfTanFOV / physicalHalfTanFOV;
 
-      // Sample point on aperture
       float r1 = rand();
       float r2 = rand();
       float angle, radius;
       #if DOF_BLADES > 2
       {
-         // Uniform sampling of a regular polygon with DOF_BLADES sides
          float bladeAngle = 2.0 * PI / float(DOF_BLADES);
-         // Pick a random triangle sector
          int sector = int(r1 * float(DOF_BLADES));
          float sectorFrac = r1 * float(DOF_BLADES) - float(sector);
-         // Uniform sample within the triangle (two barycentric coords)
+
          float u = sqrt(sectorFrac);
          float v = r2 * u;
          u = 1.0 - u;
-         // Triangle vertices: center (0,0), and two polygon corners
+
          float a0 = float(sector) * bladeAngle;
          float a1 = a0 + bladeAngle;
          float px = u * cos(a0) + v * cos(a1);
          float py = u * sin(a0) + v * sin(a1);
-         // Convert to polar for the offset below
+
          angle = atan(py, px);
          radius = sqrt(px * px + py * py) * worldLensRadius;
       }
       #else
       {
-         // Circular aperture (0 blades = perfect circle)
          angle = 2.0 * PI * r1;
          radius = sqrt(r2) * worldLensRadius;
       }
       #endif
 
-      // Lens offset in camera-local right/up
       vec3 camRight = normalize(vec3(mvInv[0]));
       vec3 camUp = normalize(vec3(mvInv[1]));
       vec3 lensOffset = camRight * (cos(angle) * radius) + camUp * (sin(angle) * radius);
@@ -434,8 +408,6 @@ void main() {
 
    vec3 lightDir = normalize((mvInv * vec4(0.01 * lightPos, 0.0)).xyz);
 
-   // Primary ray — reused as first bounce hit to avoid tracing the same ray twice
-   // Skip player model on primary ray (visible in reflections/bounces via default skipPlayer=false)
    TraceResult primaryHit = traceBVH(ro, rd, true);
 
    if (!primaryHit.hit) {
@@ -456,7 +428,6 @@ void main() {
       return;
    }
 
-   // Pathtracing state
    vec3 throughput = vec3(1.0);
    vec3 radiance = vec3(0.0);
    bool insideMedium = false;
@@ -479,7 +450,6 @@ void main() {
    for (int bounce = 0; bounce < MAX_BOUNCES; bounce++) {
       vec3 origin = hitPos + hitNormal * shadowBias;
 
-      // Choose ray direction: fixed (primary/refract/reflect) or cosine-weighted hemisphere
       vec3 bounceDir;
       if (hasFixedDir) {
          bounceDir = nextDir;
@@ -502,7 +472,6 @@ void main() {
          break;
       }
 
-      // Get albedo at hit
       vec4 texColor;
       if (bounceHit.textureID == 0u) {
          texColor = texture(blockAtlas, bounceHit.uv);
@@ -534,18 +503,13 @@ void main() {
       vec3 V = normalize(-bounceDir);
       vec3 surfaceThroughput = throughput;
 
-      // Handle translucent surface
       if (bounceHit.translucent) {
          if (bounceHit.waterSurface) {
-            // ---- Water surface ----
-            // Use vertex tint as surface color (for biome-tinted water)
             vec3 waterTintRaw = pow(bounceHit.vertexData.rgb, vec3(2.2));
             float luma = dot(waterTintRaw, vec3(0.2126, 0.7152, 0.0722));
             vec3 waterTint = mix(waterTintRaw, vec3(luma), WATER_TINT_DESAT);
 
-            // Perturb normal with procedural wave noise
             vec3 waveN = waterWaveNormal(hitPoint + (hideGUI ? control.frozenCameraPos.xyz : cameraPosition), 0.0, WATER_WAVE_STRENGTH);
-            // Orient wave normal to match geometric surface (handles flipped normals)
             float sign = dot(N, vec3(0.0, 1.0, 0.0)) >= 0.0 ? 1.0 : -1.0;
             N = normalize(vec3(waveN.x * sign, waveN.y * sign, waveN.z * sign));
 
@@ -557,7 +521,6 @@ void main() {
             bool tir = dot(refracted, refracted) < 0.001;
 
             if (tir || rand() < fresnel) {
-               // Reflection
                nextDir = reflect(bounceDir, N);
 
                if (insideWater) {
@@ -569,7 +532,6 @@ void main() {
                   hitNormal = N;
                }
             } else {
-               // Refraction — tint the throughput with surface color on entry
                nextDir = refracted;
 
                if (insideWater) {
@@ -580,7 +542,7 @@ void main() {
                   throughput *= waterTint;
                   insideWater = true;
                   insideMedium = true;
-                  mediumColor = vec3(1.0); // absorption handled via WATER_ABSORPTION
+                  mediumColor = vec3(1.0);
                }
 
                hitPos = hitPoint - N * 0.001;
@@ -589,7 +551,6 @@ void main() {
             hasFixedDir = true;
             continue;
          } else {
-            // ---- Glass / other translucent ----
             vec4 glassTexColor;
             if (bounceHit.textureID == 0u) {
                glassTexColor = texture(blockAtlas, bounceHit.uv);
@@ -603,7 +564,6 @@ void main() {
             float opacity = glassTexColor.a;
             vec3 glassColor = pow(glassTexColor.rgb * glassTexColor.rgb * bounceHit.vertexData.rgb, vec3(2.2));
 
-            // Stochastic wavelength selection for dispersion
             int wl = int(rand() * 3.0); // 0=R, 1=G, 2=B
             wl = min(wl, 2);
             float channelIOR = GLASS_IOR_RGB[wl];
@@ -613,20 +573,15 @@ void main() {
             float eta = insideMedium ? (channelIOR / 1.0) : (1.0 / channelIOR);
             float cosI = abs(dot(bounceDir, N));
             float fresnel = fresnelSchlick(cosI, channelIOR);
-
-            // Blend between glass (refract/reflect) and diffuse based on texture alpha
             float glassProb = 1.0 - opacity;
 
-            // Scale translucent diffuse by roughness to avoid overly opaque direct lighting
             diffuseAlbedo *= roughness;
 
             if (rand() < glassProb) {
-               // Glass path: Fresnel reflection or refraction
                vec3 refracted = refract(bounceDir, N, eta);
                bool tir = dot(refracted, refracted) < 0.001;
 
                if (tir || rand() < fresnel) {
-                  // Reflection (Fresnel or TIR) — no dispersion on reflection
                   nextDir = reflect(bounceDir, N);
 
                   if (insideMedium) {
@@ -639,7 +594,6 @@ void main() {
                      hitNormal = N;
                   }
                } else {
-                  // Refraction — apply dispersion via channel mask
                   nextDir = refracted;
                   throughput *= channelMask;
 
@@ -658,11 +612,9 @@ void main() {
                hasFixedDir = true;
                continue;
             }
-            // else: fall through to diffuse path below
          }
       }
 
-      // Apply Beer-Lambert if ray traveled through a medium to reach this opaque surface
       if (insideMedium) {
          if (insideWater) {
             throughput *= exp(-WATER_ABSORPTION * bounceHit.t);
@@ -674,7 +626,6 @@ void main() {
          insideMedium = false;
       }
 
-      // Emissive contribution
       #ifdef MC_TEXTURE_FORMAT_LAB_PBR_1_3
       float emission = emissionMap * 3.0;
       #else
@@ -684,7 +635,6 @@ void main() {
          radiance += throughput * bounceAlbedo * emission * 2.0;
       }
 
-      // Direct lighting: NEE with tinted soft shadows
       vec3 shadowOrigin = hitPoint + N * shadowBias;
       float NdotL_direct = dot(N, lightDir);
       bool frontLit = NdotL_direct > 0.0;
@@ -711,7 +661,6 @@ void main() {
             }
          }
 
-         // SSS: light scattering through from the back side
          if (backLit) {
             vec3 sssOrigin = hitPoint - N * shadowBias;
             vec3 shadowTint = traceShadowTinted(sssOrigin, sampleDir, SHADOW_MAX_DIST);
@@ -723,7 +672,6 @@ void main() {
          }
       }
 
-      // Sample BRDF (Hammon diffuse + GGX)
       float specularProb = clamp(max(max(F0.r, F0.g), F0.b), 0.05, 0.95);
       if (rand() < specularProb) {
          vec3 H = sampleGGX(N, roughness);
@@ -766,12 +714,10 @@ void main() {
          hasFixedDir = true;
       }
 
-      // Advance to hit point
       hitPos = hitPoint;
       hitNormal = N;
       shadowBias = 0.001;
 
-      // Russian roulette after bounce 1
       if (bounce > 0) {
          float p = max(max(throughput.r, throughput.g), throughput.b);
          if (rand() > p) break;

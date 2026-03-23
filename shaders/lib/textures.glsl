@@ -42,7 +42,6 @@ uint nextPow2(uint v) {
    return v + 1;
 }
 
-// Compute the texel count (padded to pow2 square) for a given texture size.
 uint texelCountForSize(ivec2 texSize) {
    uint paddedDim = nextPow2(uint(max(texSize.x, texSize.y)));
    return paddedDim * paddedDim;
@@ -65,7 +64,6 @@ vec4 sampleEntityTexture(uint textureID, vec2 uv) {
 
 #ifdef ENTITY_PBR
 
-// Sample entity normal map. Stored at baseOffset + texelCount.
 vec4 sampleEntityNormal(uint textureID, vec2 uv) {
    uint slot = textureID - 1u;
    TextureInfo entry = textureMap[slot];
@@ -84,7 +82,6 @@ vec4 sampleEntityNormal(uint textureID, vec2 uv) {
    return unpackUnorm4x8(textureData[entry.baseOffset + texelCount + idx]);
 }
 
-// Sample entity specular map. Stored at baseOffset + 2*texelCount.
 vec4 sampleEntitySpecular(uint textureID, vec2 uv) {
    uint slot = textureID - 1u;
    TextureInfo entry = textureMap[slot];

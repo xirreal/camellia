@@ -9,7 +9,6 @@
 uniform float alphaTestRef = 0.1;
 #endif
 
-// Water absorption coefficients (per-block distance) for Beer-Lambert
 const vec3 WATER_ABSORPTION = vec3(0.45, 0.07, 0.04);
 
 const int BVH_STACK_SIZE = 24;
@@ -249,11 +248,8 @@ TraceResult traceBVH(vec3 ro, vec3 rd) {
    return traceBVH(ro, rd, false);
 }
 
-// Evaluate a shadow tri hit for the tinted shadow ray.
-// Returns true if the ray is fully blocked (tint zeroed or opaque hit).
 bool shadowTriHit(uint prim, vec2 bary, int triIndex, float hitT, inout vec3 tint) {
    if (quadTranslucent(prim)) {
-      // Water: apply absorption-based tinting
       if (quadBlockID(prim) == 1u) {
          vec3 waterTint = pow(interpolateQuadTint(prim, bary, triIndex), vec3(2.2));
          tint *= waterTint * exp(-WATER_ABSORPTION * max(hitT, 0.5));
