@@ -13,6 +13,8 @@ void main() {
    gl_Position = vec4(vec3(11.0), 1.0);
 
    if (control.sceneFrozen != 0u) return;
+   uint blockId = uint(mc_Entity.x);
+   if (blockId == 1 && gl_Normal.y < -0.5) return;
 
    vec3 shadowViewSpacePos = (gl_ModelViewMatrix * vec4(gl_Vertex.xyz, 1.0)).xyz;
    vec3 playerSpacePos = (shadowModelViewInverse * vec4(shadowViewSpacePos, 1.0)).xyz;
@@ -23,7 +25,7 @@ void main() {
 
    uint textureID = 0; // solid blocks get id 0
 
-   Vertex vertex = Vertex(playerSpacePos, encodeVertexData(color, emission, false, true), coord, uint(mc_Entity.x), textureID);
+   Vertex vertex = Vertex(playerSpacePos, encodeVertexData(color, emission, false, true), coord, blockId, textureID);
 
    uint vertexId = getVertexWriteIndex();
 

@@ -6,6 +6,7 @@ uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelViewInverse;
 uniform vec3 shadowLightPosition;
 uniform bool firstPersonCamera;
+uniform vec3 cameraPosition;
 
 #define AS_VERTEX
 #include "/lib/storage.glsl"
@@ -46,6 +47,7 @@ void main() {
             control.frozenModelViewInv = gbufferModelViewInverse;
             control.frozenLightPos = vec4(shadowLightPosition, 0.0);
             control.frozenFirstPerson = firstPersonCamera ? 1u : 0u;
+            control.frozenCameraPos = vec4(cameraPosition, 0.0);
          }
          control.sceneFrozen = 1u;
       }

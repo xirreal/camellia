@@ -16,8 +16,11 @@ uniform sampler2D colortex5;
 uniform sampler2D blockAtlas;
 uniform sampler2D normalAtlas;
 uniform sampler2D specularAtlas;
+uniform int isEyeInWater;
+uniform vec3 cameraPosition;
 
 uniform int randomSeed;
+uniform float frameTimeCounter;
 
 uniform float near;
 
@@ -26,6 +29,7 @@ const float DOF_AUTOFOCUS_SPEED = 10.0; // exponential smoothing speed
 #include "/lib/storage.glsl"
 #include "/lib/hploc.glsl"
 #include "/lib/encoding.glsl"
+#include "/lib/noise.glsl"
 #include "/lib/raytrace.glsl"
 
 const int MAX_BOUNCES = 4;
@@ -46,6 +50,11 @@ const float PI = 3.14159265359;
 // Cauchy's equation IOR per wavelength (crown glass-like dispersion)
 // λ_R ≈ 650nm, λ_G ≈ 550nm, λ_B ≈ 450nm
 const vec3 GLASS_IOR_RGB = vec3(1.510, 1.515, 1.525);
+
+// Water IOR (no dispersion — single value)
+const float WATER_IOR = 1.33;
+const float WATER_TINT_DESAT = 1.0; // 0 = full color, 1 = grayscale
+const float WATER_WAVE_STRENGTH = 0.1; // wave normal perturbation strength
 
 void computeTangentBasis(uint quadID, int triIndex, vec3 geomNormal, out vec3 tangent, out vec3 bitangent) {
    vec3 p0, p1, p2, p3;
@@ -73,7 +82,7 @@ void computeTangentBasis(uint quadID, int triIndex, vec3 geomNormal, out vec3 ta
 
 vec3 labPBRMetalF0(int metalID);
 
-void decodeLabPBR(vec2 uv, vec3 geomNormal, uint quadID, int triIndex, uint textureID, vec3 baseColor, out vec3 normal, out float roughness, out float metallic, out vec3 F0, out float emission, out float ao, out float sss) {
+void decodeLabPBR(vec3 hitPos, vec2 uv, vec3 geomNormal, uint quadID, int triIndex, uint textureID, vec3 baseColor, out vec3 normal, out float roughness, out float metallic, out vec3 F0, out float emission, out float ao, out float sss) {
    vec4 nTexSample;
    vec4 spec;
 
@@ -104,8 +113,7 @@ void decodeLabPBR(vec2 uv, vec3 geomNormal, uint quadID, int triIndex, uint text
    vec3 bitangent;
    computeTangentBasis(quadID, triIndex, geomNormal, tangent, bitangent);
    normal = normalize(tangent * nTex.x + bitangent * nTex.y + geomNormal * nTex.z);
-   float perceptualSmoothness = spec.r;
-   roughness = pow(1.0 - perceptualSmoothness, 2.0);
+   roughness = 1.0 - spec.r;
 
    float g = spec.g;
    float g255 = g * 255.0;
@@ -124,12 +132,24 @@ void decodeLabPBR(vec2 uv, vec3 geomNormal, uint quadID, int triIndex, uint text
 
    emission = (spec.a >= (254.5 / 255.0)) ? 0.0 : spec.a;
 
+   #ifdef MC_TEXTURE_FORMAT_LAB_PBR_1_3
    float b255 = spec.b * 255.0;
    if (b255 >= 64.5) {
       sss = (b255 - 65.0) / 190.0;
    } else {
       sss = 0.0;
    }
+   #else
+   if (quads[quadID].v1.blockID == 2) {
+      vec3 elFracto = fract(hitPos + cameraPosition);
+      float edgeWeight = distance(vec3(0.5, elFracto.y * elFracto.y * elFracto.y, 0.5), elFracto);
+
+      edgeWeight = pow(edgeWeight * 2.0, 4.0);
+      sss = clamp(edgeWeight, 0.0, 0.6);
+   } else {
+      sss = 0.0;
+   }
+   #endif
 }
 
 // ---- RNG ----
@@ -339,13 +359,7 @@ void main() {
          TraceResult centerHit = traceBVH(centerRo, centerRd, true);
          float newDist = centerHit.hit ? centerHit.t : 100.0;
 
-         float prev = control.autofocusDist;
-         if (prev <= 0.0) {
-            control.autofocusDist = newDist;
-         } else {
-            float alpha = 1.0 - exp(-DOF_AUTOFOCUS_SPEED / 60.0);
-            control.autofocusDist = mix(prev, newDist, alpha);
-         }
+         control.autofocusDist = newDist;
       }
    }
    #endif
@@ -448,6 +462,7 @@ void main() {
    vec3 throughput = vec3(1.0);
    vec3 radiance = vec3(0.0);
    bool insideMedium = false;
+   bool insideWater = false;
    vec3 mediumColor = vec3(1.0);
 
    vec3 hitPos = ro;
@@ -457,6 +472,11 @@ void main() {
    float shadowBias = 0.001;
    TraceResult cachedHit = primaryHit;
    bool hasCachedHit = true;
+
+   if (isEyeInWater == 1) {
+      insideMedium = true;
+      insideWater = true;
+   }
 
    for (int bounce = 0; bounce < MAX_BOUNCES; bounce++) {
       vec3 origin = hitPos + hitNormal * shadowBias;
@@ -504,7 +524,11 @@ void main() {
       float emissionMap;
       float ao;
       float sssAmount;
-      decodeLabPBR(bounceHit.uv, bounceHit.normal, bounceHit.quadID, bounceHit.triIndex, bounceHit.textureID, bounceAlbedo, shadeNormal, roughness, metallic, F0, emissionMap, ao, sssAmount);
+      vec3 c_hitPos = origin + bounceDir * bounceHit.t;
+      decodeLabPBR(c_hitPos, bounceHit.uv, bounceHit.normal, bounceHit.quadID, bounceHit.triIndex, bounceHit.textureID, bounceAlbedo, shadeNormal, roughness, metallic, F0, emissionMap, ao, sssAmount);
+
+      // radiance = vec3(sssAmount);
+      // break;
 
       vec3 diffuseAlbedo = bounceAlbedo * ao;
       vec3 hitPoint = origin + bounceDir * bounceHit.t;
@@ -514,66 +538,51 @@ void main() {
 
       // Handle translucent surface
       if (bounceHit.translucent) {
-         vec4 glassTexColor;
-         if (bounceHit.textureID == 0u) {
-            glassTexColor = texture(blockAtlas, bounceHit.uv);
-         } else {
-            #ifdef ENTITY_TEXTURES
-            glassTexColor = sampleEntityTexture(bounceHit.textureID, bounceHit.uv);
-            #else
-            glassTexColor = vec4(1.0);
-            #endif
-         }
-         float opacity = glassTexColor.a;
-         vec3 glassColor = pow(glassTexColor.rgb * glassTexColor.rgb * bounceHit.vertexData.rgb, vec3(2.2));
+         if (bounceHit.waterSurface) {
+            // ---- Water surface ----
+            // Use vertex tint as surface color (for biome-tinted water)
+            vec3 waterTintRaw = pow(bounceHit.vertexData.rgb, vec3(2.2));
+            float luma = dot(waterTintRaw, vec3(0.2126, 0.7152, 0.0722));
+            vec3 waterTint = mix(waterTintRaw, vec3(luma), WATER_TINT_DESAT);
 
-         // Stochastic wavelength selection for dispersion
-         int wl = int(rand() * 3.0); // 0=R, 1=G, 2=B
-         wl = min(wl, 2);
-         float channelIOR = GLASS_IOR_RGB[wl];
-         vec3 channelMask = vec3(0.0);
-         channelMask[wl] = 3.0; // weight by 3 to compensate 1/3 selection probability
+            // Perturb normal with procedural wave noise
+            vec3 waveN = waterWaveNormal(hitPoint + (hideGUI ? control.frozenCameraPos.xyz : cameraPosition), 0.0, WATER_WAVE_STRENGTH);
+            // Orient wave normal to match geometric surface (handles flipped normals)
+            float sign = dot(N, vec3(0.0, 1.0, 0.0)) >= 0.0 ? 1.0 : -1.0;
+            N = normalize(vec3(waveN.x * sign, waveN.y * sign, waveN.z * sign));
 
-         float eta = insideMedium ? (channelIOR / 1.0) : (1.0 / channelIOR);
-         float cosI = abs(dot(bounceDir, N));
-         float fresnel = fresnelSchlick(cosI, channelIOR);
+            float eta = insideWater ? (WATER_IOR / 1.0) : (1.0 / WATER_IOR);
+            float cosI = abs(dot(bounceDir, N));
+            float fresnel = fresnelSchlick(cosI, WATER_IOR);
 
-         // Blend between glass (refract/reflect) and diffuse based on texture alpha
-         float glassProb = 1.0 - opacity;
-
-         // Scale translucent diffuse by roughness to avoid overly opaque direct lighting
-         diffuseAlbedo *= roughness;
-
-         if (rand() < glassProb) {
-            // Glass path: Fresnel reflection or refraction
             vec3 refracted = refract(bounceDir, N, eta);
             bool tir = dot(refracted, refracted) < 0.001;
 
             if (tir || rand() < fresnel) {
-               // Reflection (Fresnel or TIR) — no dispersion on reflection
+               // Reflection
                nextDir = reflect(bounceDir, N);
 
-               if (insideMedium) {
-                  vec3 absorption = -log(max(mediumColor, vec3(0.01)));
-                  throughput *= exp(-absorption * bounceHit.t);
-                  hitPos = hitPoint - N * 0.001;
-                  hitNormal = -N;
+               if (insideWater) {
+                  throughput *= exp(-WATER_ABSORPTION * bounceHit.t);
+                  hitPos = hitPoint + N * 0.001;
+                  hitNormal = N;
                } else {
                   hitPos = hitPoint + N * 0.001;
                   hitNormal = N;
                }
             } else {
-               // Refraction — apply dispersion via channel mask
+               // Refraction — tint the throughput with surface color on entry
                nextDir = refracted;
-               throughput *= channelMask;
 
-               if (insideMedium) {
-                  vec3 absorption = -log(max(mediumColor, vec3(0.01)));
-                  throughput *= exp(-absorption * bounceHit.t);
+               if (insideWater) {
+                  throughput *= exp(-WATER_ABSORPTION * bounceHit.t);
+                  insideWater = false;
                   insideMedium = false;
                } else {
+                  throughput *= waterTint;
+                  insideWater = true;
                   insideMedium = true;
-                  mediumColor = glassColor;
+                  mediumColor = vec3(1.0); // absorption handled via WATER_ABSORPTION
                }
 
                hitPos = hitPoint - N * 0.001;
@@ -581,14 +590,89 @@ void main() {
             }
             hasFixedDir = true;
             continue;
+         } else {
+            // ---- Glass / other translucent ----
+            vec4 glassTexColor;
+            if (bounceHit.textureID == 0u) {
+               glassTexColor = texture(blockAtlas, bounceHit.uv);
+            } else {
+               #ifdef ENTITY_TEXTURES
+               glassTexColor = sampleEntityTexture(bounceHit.textureID, bounceHit.uv);
+               #else
+               glassTexColor = vec4(1.0);
+               #endif
+            }
+            float opacity = glassTexColor.a;
+            vec3 glassColor = pow(glassTexColor.rgb * glassTexColor.rgb * bounceHit.vertexData.rgb, vec3(2.2));
+
+            // Stochastic wavelength selection for dispersion
+            int wl = int(rand() * 3.0); // 0=R, 1=G, 2=B
+            wl = min(wl, 2);
+            float channelIOR = GLASS_IOR_RGB[wl];
+            vec3 channelMask = vec3(0.0);
+            channelMask[wl] = 3.0; // weight by 3 to compensate 1/3 selection probability
+
+            float eta = insideMedium ? (channelIOR / 1.0) : (1.0 / channelIOR);
+            float cosI = abs(dot(bounceDir, N));
+            float fresnel = fresnelSchlick(cosI, channelIOR);
+
+            // Blend between glass (refract/reflect) and diffuse based on texture alpha
+            float glassProb = 1.0 - opacity;
+
+            // Scale translucent diffuse by roughness to avoid overly opaque direct lighting
+            diffuseAlbedo *= roughness;
+
+            if (rand() < glassProb) {
+               // Glass path: Fresnel reflection or refraction
+               vec3 refracted = refract(bounceDir, N, eta);
+               bool tir = dot(refracted, refracted) < 0.001;
+
+               if (tir || rand() < fresnel) {
+                  // Reflection (Fresnel or TIR) — no dispersion on reflection
+                  nextDir = reflect(bounceDir, N);
+
+                  if (insideMedium) {
+                     vec3 absorption = -log(max(mediumColor, vec3(0.01)));
+                     throughput *= exp(-absorption * bounceHit.t);
+                     hitPos = hitPoint - N * 0.001;
+                     hitNormal = -N;
+                  } else {
+                     hitPos = hitPoint + N * 0.001;
+                     hitNormal = N;
+                  }
+               } else {
+                  // Refraction — apply dispersion via channel mask
+                  nextDir = refracted;
+                  throughput *= channelMask;
+
+                  if (insideMedium) {
+                     vec3 absorption = -log(max(mediumColor, vec3(0.01)));
+                     throughput *= exp(-absorption * bounceHit.t);
+                     insideMedium = false;
+                  } else {
+                     insideMedium = true;
+                     mediumColor = glassColor;
+                  }
+
+                  hitPos = hitPoint - N * 0.001;
+                  hitNormal = -N;
+               }
+               hasFixedDir = true;
+               continue;
+            }
+            // else: fall through to diffuse path below
          }
-         // else: fall through to diffuse path below
       }
 
       // Apply Beer-Lambert if ray traveled through a medium to reach this opaque surface
       if (insideMedium) {
-         vec3 absorption = -log(max(mediumColor, vec3(0.01)));
-         throughput *= exp(-absorption * max(bounceHit.t, 0.4));
+         if (insideWater) {
+            throughput *= exp(-WATER_ABSORPTION * bounceHit.t);
+            insideWater = false;
+         } else {
+            vec3 absorption = -log(max(mediumColor, vec3(0.01)));
+            throughput *= exp(-absorption * max(bounceHit.t, 0.4));
+         }
          insideMedium = false;
       }
 
@@ -612,7 +696,11 @@ void main() {
          vec3 tangent = normalize(cross(up, lightDir));
          vec3 bitangent = cross(lightDir, tangent);
 
-         float r = sqrt(rand()) * 0.007;
+         #ifdef MC_TEXTURE_FORMAT_LAB_PBR_1_3
+         float r = sqrt(rand()) * (0.007 + (sssAmount * 0.01));
+         #else
+         float r = sqrt(rand()) * (0.007 + (sssAmount * 0.1));
+         #endif
          float theta = rand() * 2.0 * PI;
          vec3 sampleDir = normalize(lightDir + (tangent * cos(theta) + bitangent * sin(theta)) * r);
          float sNdotL = dot(N, sampleDir);

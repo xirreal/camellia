@@ -92,6 +92,7 @@ layout(std430, binding = 1) buffer ControlBuffer {
    vec4 frozenLightPos; // 244
    uint frozenFirstPerson; // 260
    float autofocusDist; // 264
+   vec4 frozenCameraPos; // 268
    } control;
 
 const uint MAX_TEXTURES = 65536u;

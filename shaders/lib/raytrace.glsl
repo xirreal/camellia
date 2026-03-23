@@ -6,8 +6,11 @@
 #define ALPHA_TEST
 
 #ifdef ALPHA_TEST
-const float ALPHA_THRESHOLD = 0.5;
+uniform float alphaTestRef = 0.1;
 #endif
+
+// Water absorption coefficients (per-block distance) for Beer-Lambert
+const vec3 WATER_ABSORPTION = vec3(0.45, 0.07, 0.04);
 
 const int BVH_STACK_SIZE = 24;
 const int BVH_WG_SIZE = 64;
@@ -24,6 +27,7 @@ struct TraceResult {
    uint textureID; // 0 = block atlas, >0 = entity texture slot+1
    int triIndex; // 0 = tri(p0,p1,p2), 1 = tri(p0,p2,p3)
    bool translucent; // translucent surface (glass-like, IOR 1.5)
+   bool waterSurface; // water surface (block ID 1)
 };
 
 vec3 safeInvDir(vec3 d) {
@@ -112,77 +116,77 @@ vec2 interpolateQuadUV(uint quadID, vec2 bary, int triIndex) {
 const float DIAGONAL = sqrt(3.0);
 
 TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer) {
-    TraceResult res;
-    res.t = (8.0 + (far * 16.0)) * DIAGONAL;
-    res.hit = false;
-    res.quadID = INVALID_ID;
+   TraceResult res;
+   res.t = (8.0 + (far * 16.0)) * DIAGONAL;
+   res.hit = false;
+   res.quadID = INVALID_ID;
 
-    uint rootID = control.rootClusterID;
-    if (rootID == INVALID_ID) return res;
+   uint rootID = control.rootClusterID;
+   if (rootID == INVALID_ID) return res;
 
-    vec3 invRd = safeInvDir(rd);
+   vec3 invRd = safeInvDir(rd);
 
-    int sp = 0;
-    uint tid = gl_LocalInvocationIndex;
+   int sp = 0;
+   uint tid = gl_LocalInvocationIndex;
 
-    uint nodeID = rootID;
-    uint numQuads = control.sortTotal;
-    vec2 resBary = vec2(0.0);
+   uint nodeID = rootID;
+   uint numQuads = control.sortTotal;
+   vec2 resBary = vec2(0.0);
 
-    for (int iter = 0; iter < BVH_STACK_SIZE * BVH_STACK_SIZE; iter++) {
-       if (nodeID == INVALID_ID) {
-          if (sp == 0) break;
-          --sp;
-          nodeID = shared_stack[sp * BVH_WG_SIZE + tid];
-          continue;
-       }
+   for (int iter = 0; iter < BVH_STACK_SIZE * BVH_STACK_SIZE; iter++) {
+      if (nodeID == INVALID_ID) {
+         if (sp == 0) break;
+         --sp;
+         nodeID = shared_stack[sp * BVH_WG_SIZE + tid];
+         continue;
+      }
 
-       uint prim = getClusterPrimID(nodeID);
+      uint prim = getClusterPrimID(nodeID);
 
-       if (!isInternalNode(nodeID)) {
-          if (prim < numQuads) {
-             #ifdef ALPHA_TEST
-             float prevT = res.t;
-             uint encoded = quads[prim].v1.encodedVertex; // prefetch before intersection
-             #else
-             uint encoded = quads[prim].v1.encodedVertex;
-             #endif
-             if (skipPlayer && isPlayerModel(encoded)) {
-                nodeID = INVALID_ID;
-                continue;
-             }
-             vec2 hitBary;
-             int hitTri;
-             if (intersectQuadGeom(prim, ro, rd, res.t, hitBary, hitTri)) {
-                #ifdef ALPHA_TEST
-                bool transparent = false;
-                if (isAlphaTested(encoded)) {
-                   vec2 hitUV = interpolateQuadUV(prim, hitBary, hitTri);
-                   uint hitTexID = quads[prim].v1.textureID;
-                   if (hitTexID == 0u) {
-                      transparent = texture(blockAtlas, hitUV).a < ALPHA_THRESHOLD;
-                   }
-                   #ifdef ENTITY_TEXTURES
-                   else {
-                      transparent = sampleEntityTexture(hitTexID, hitUV).a < ALPHA_THRESHOLD;
-                   }
-                   #endif
-                }
-                if (transparent) {
-                   res.t = prevT;
-                } else
-                #endif
-                {
-                   res.hit = true;
-                   res.quadID = prim;
-                   res.triIndex = hitTri;
-                   resBary = hitBary;
-                }
-             }
-          }
-          nodeID = INVALID_ID;
-          continue;
-       }
+      if (!isInternalNode(nodeID)) {
+         if (prim < numQuads) {
+            #ifdef ALPHA_TEST
+            float prevT = res.t;
+            uint encoded = quads[prim].v1.encodedVertex; // prefetch before intersection
+            #else
+            uint encoded = quads[prim].v1.encodedVertex;
+            #endif
+            if (skipPlayer && isPlayerModel(encoded)) {
+               nodeID = INVALID_ID;
+               continue;
+            }
+            vec2 hitBary;
+            int hitTri;
+            if (intersectQuadGeom(prim, ro, rd, res.t, hitBary, hitTri)) {
+               #ifdef ALPHA_TEST
+               bool transparent = false;
+               if (isAlphaTested(encoded)) {
+                  vec2 hitUV = interpolateQuadUV(prim, hitBary, hitTri);
+                  uint hitTexID = quads[prim].v1.textureID;
+                  if (hitTexID == 0u) {
+                     transparent = texture(blockAtlas, hitUV).a < alphaTestRef;
+                  }
+                  #ifdef ENTITY_TEXTURES
+                  else {
+                     transparent = sampleEntityTexture(hitTexID, hitUV).a < alphaTestRef;
+                  }
+                  #endif
+               }
+               if (transparent) {
+                  res.t = prevT;
+               } else
+               #endif
+               {
+                  res.hit = true;
+                  res.quadID = prim;
+                  res.triIndex = hitTri;
+                  resBary = hitBary;
+               }
+            }
+         }
+         nodeID = INVALID_ID;
+         continue;
+      }
 
       BVH2Node node = bvh2Nodes[prim];
       uint c0 = node.leftChild;
@@ -229,19 +233,26 @@ TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer) {
       res.vertexData = decodeVertexData(encoded);
       res.textureID = quads[res.quadID].v1.textureID;
       res.translucent = isTranslucent(encoded);
+      res.waterSurface = quads[res.quadID].v1.blockID == 1u;
    }
 
    return res;
-   }
+}
 
 TraceResult traceBVH(vec3 ro, vec3 rd) {
    return traceBVH(ro, rd, false);
 }
 
-   // Evaluate a shadow tri hit for the tinted shadow ray.
+// Evaluate a shadow tri hit for the tinted shadow ray.
 // Returns true if the ray is fully blocked (tint zeroed or opaque hit).
-bool shadowTriHit(uint prim, uint encoded, vec2 bary, int triIndex, inout vec3 tint) {
+bool shadowTriHit(uint prim, uint encoded, vec2 bary, int triIndex, float hitT, inout vec3 tint) {
    if (isTranslucent(encoded)) {
+      // Water: apply absorption-based tinting
+      if (quads[prim].v1.blockID == 1u) {
+         vec3 waterTint = pow(decodeVertexData(encoded).rgb, vec3(2.2));
+         tint *= waterTint * exp(-WATER_ABSORPTION * max(hitT, 0.5));
+         return tint == vec3(0.0);
+      }
       vec2 hitUV = interpolateQuadUV(prim, bary, triIndex);
       uint hitTexID = quads[prim].v1.textureID;
       vec4 texSample = (hitTexID == 0u) ? texture(blockAtlas, hitUV) : vec4(1.0);
@@ -254,10 +265,10 @@ bool shadowTriHit(uint prim, uint encoded, vec2 bary, int triIndex, inout vec3 t
       vec2 hitUV = interpolateQuadUV(prim, bary, triIndex);
       uint hitTexID = quads[prim].v1.textureID;
       if (hitTexID == 0u) {
-         return texture(blockAtlas, hitUV).a >= ALPHA_THRESHOLD;
+         return texture(blockAtlas, hitUV).a >= alphaTestRef;
       } else {
          #ifdef ENTITY_TEXTURES
-         return sampleEntityTexture(hitTexID, hitUV).a >= ALPHA_THRESHOLD;
+         return sampleEntityTexture(hitTexID, hitUV).a >= alphaTestRef;
          #else
          return true;
          #endif
@@ -300,10 +311,10 @@ vec3 traceShadowTinted(vec3 ro, vec3 rd, float maxDist) {
             float t;
             vec2 bary;
             if (intersectTri(ro, rd, p0, p1, p2, t, bary) && t < maxDist) {
-               if (shadowTriHit(prim, encoded, bary, 0, tint)) return vec3(0.0);
+               if (shadowTriHit(prim, encoded, bary, 0, t, tint)) return vec3(0.0);
             }
             if (intersectTri(ro, rd, p0, p2, p3, t, bary) && t < maxDist) {
-               if (shadowTriHit(prim, encoded, bary, 1, tint)) return vec3(0.0);
+               if (shadowTriHit(prim, encoded, bary, 1, t, tint)) return vec3(0.0);
             }
          }
          nodeID = INVALID_ID;
