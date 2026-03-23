@@ -9,7 +9,7 @@ uniform sampler2D normals;
 uniform sampler2D specular;
 uniform int gtextureId = 0;
 
-#define AS_VERTEX
+#define QUAD_WRITE
 #include "/lib/storage.glsl"
 #include "/lib/textures.glsl"
 

@@ -1,8 +1,6 @@
-#version 460
-
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(rgba16f) uniform writeonly image2D colorimg5;
+layout(rgba32f) uniform image2D colorimg5;
 
 uniform float viewWidth;
 uniform float viewHeight;
@@ -10,27 +8,45 @@ uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelViewInverse;
 uniform vec3 shadowLightPosition;
 uniform int frameCounter;
-uniform bool firstPersonCamera;
-
+uniform bool hideGUI;
+uniform sampler2D colortex5;
 uniform sampler2D blockAtlas;
+uniform sampler2D normalAtlas;
+uniform sampler2D specularAtlas;
+uniform int isEyeInWater;
+uniform vec3 cameraPosition;
+
+uniform int randomSeed;
+uniform float frameTimeCounter;
 
 uniform float near;
 
 #include "/lib/storage.glsl"
 #include "/lib/hploc.glsl"
 #include "/lib/encoding.glsl"
+#include "/lib/noise.glsl"
 #include "/lib/raytrace.glsl"
 
 const float CLOSE_SHADOW_BIAS = 0.000001;
 const float FAR_SHADOW_BIAS = 0.0001;
 const float SHADOW_MAX_DIST = 256.0;
-const float SKY_BRIGHTNESS = 0.75;
-const float SUN_BRIGHTNESS = 1.25;
+const float SKY_BRIGHTNESS = 0.6;
+const float SUN_BRIGHTNESS = 2.5;
 
 uint rngState;
 
-void initRNG(ivec2 coord, int frame) {
-   rngState = uint(coord.x * 1973 + coord.y * 9277 + frame * 26699) | 1u;
+uint hash(uint x) {
+   x ^= x >> 16;
+   x *= 0x7feb352dU;
+   x ^= x >> 15;
+   x *= 0x846ca68bU;
+   x ^= x >> 16;
+   return x;
+}
+
+void initRNG(ivec2 coord, int frame, int _seed) {
+   uint seed = uint(coord.x) + uint(coord.y) * 4096u + uint(frame) * 16777216u + uint(_seed) * 65536u;
+   rngState = seed ^ hash(seed);
 }
 
 uint pcgHash() {
@@ -56,7 +72,7 @@ void main() {
    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
    if (coord.x >= int(viewWidth) || coord.y >= int(viewHeight)) return;
 
-   initRNG(coord, frameCounter);
+   initRNG(coord, frameCounter, randomSeed);
 
    vec2 uv = (vec2(coord) + 0.5) / vec2(viewWidth, viewHeight);
    vec2 ndc = uv * 2.0 - 1.0;
@@ -65,25 +81,11 @@ void main() {
    vec4 viewDir = gbufferProjectionInverse * clipDir;
    viewDir.xyz /= viewDir.w;
    vec3 rd = normalize((mat3(gbufferModelViewInverse) * viewDir.xyz));
-
    vec3 ro = gbufferModelViewInverse[3].xyz;
 
-   if (firstPersonCamera) {
-      vec3 extents = vec3(0.6);
-      vec3 safeRd = rd + step(abs(rd), vec3(1e-8)) * 1e-8;
-      vec3 t1 = (-extents - ro) / safeRd;
-      vec3 t2 = (extents - ro) / safeRd;
-      vec3 tMax = max(t1, t2);
-      float tExit = min(tMax.x, min(tMax.y, tMax.z));
-
-      if (tExit > 0.0) {
-         ro += rd * (tExit + 0.001);
-      }
-   }
-
-   TraceResult hit = traceBVH(ro, rd);
-
    vec3 lightDir = normalize((gbufferModelViewInverse * vec4(0.01 * shadowLightPosition, 0.0)).xyz);
+
+   TraceResult hit = traceBVH(ro, rd, true);
 
    if (!hit.hit) {
       vec3 sky = getSkyColor(rd, lightDir);
@@ -112,7 +114,7 @@ void main() {
       vec3 shadowOrigin = hitPos + hit.normal * mix(CLOSE_SHADOW_BIAS, FAR_SHADOW_BIAS, hit.t / SHADOW_MAX_DIST);
 
       int NUM_SAMPLES = 4;
-      float lightSpread = 0.007;
+      float lightSpread = 0.01;
 
       vec3 shadowAccum = vec3(0.0);
       float weightAccum = 0.0;
@@ -142,8 +144,8 @@ void main() {
       shadow = shadowAccum / weightAccum;
    }
 
-   vec3 sunLight = NdotL * shadow * SUN_BRIGHTNESS * vec3(0.9, 1.1, 1.5);
-   vec3 ambient = vec3(SKY_BRIGHTNESS * 0.18);
+   vec3 sunLight = NdotL * shadow * SUN_BRIGHTNESS * vec3(1.0, 1.0, 1.0);
+   vec3 ambient = getSkyColor(vec3(0.0, 1.0, 0.0), lightDir);
    vec3 lighting = sunLight + ambient;
 
    float emission = hit.vertexData.a;

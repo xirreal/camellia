@@ -155,41 +155,41 @@ TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer) {
 
       if (!isInternalNode(nodeID)) {
          if (prim < numQuads) {
-             #ifdef ALPHA_TEST
-             float prevT = res.t;
-             #endif
-             if (skipPlayer && quadPlayerModel(prim)) {
+            #ifdef ALPHA_TEST
+            float prevT = res.t;
+            #endif
+            if (skipPlayer && quadPlayerModel(prim)) {
                nodeID = INVALID_ID;
                continue;
             }
             vec2 hitBary;
             int hitTri;
             if (intersectQuadGeom(prim, ro, rd, res.t, hitBary, hitTri)) {
-                #ifdef ALPHA_TEST
-                bool transparent = false;
-                if (quadAlphaTested(prim)) {
-                   vec2 hitUV = interpolateQuadUV(prim, hitBary, hitTri);
-                   uint hitTexID = quadTextureID(prim);
-                   if (hitTexID == 0u) {
-                      transparent = texture(blockAtlas, hitUV).a < alphaTestRef;
-                   }
-                   #ifdef ENTITY_TEXTURES
-                   else {
-                      transparent = sampleEntityTexture(hitTexID, hitUV).a < alphaTestRef;
-                   }
-                   #endif
-                }
-                if (transparent) {
-                   res.t = prevT;
-                } else
-                #endif
-                {
-                   res.hit = true;
-                   res.quadID = prim;
-                   res.triIndex = hitTri;
-                   resBary = hitBary;
-                }
-             }
+               #ifdef ALPHA_TEST
+               bool transparent = false;
+               if (quadAlphaTested(prim)) {
+                  vec2 hitUV = interpolateQuadUV(prim, hitBary, hitTri);
+                  uint hitTexID = quadTextureID(prim);
+                  if (hitTexID == 0u) {
+                     transparent = texture(blockAtlas, hitUV).a < alphaTestRef;
+                  }
+                  #ifdef ENTITY_TEXTURES
+                  else {
+                     transparent = sampleEntityTexture(hitTexID, hitUV).a < alphaTestRef;
+                  }
+                  #endif
+               }
+               if (transparent) {
+                  res.t = prevT;
+               } else
+               #endif
+               {
+                  res.hit = true;
+                  res.quadID = prim;
+                  res.triIndex = hitTri;
+                  resBary = hitBary;
+               }
+            }
          }
          nodeID = INVALID_ID;
          continue;
@@ -311,16 +311,16 @@ vec3 traceShadowTinted(vec3 ro, vec3 rd, float maxDist) {
       if (!isInternalNode(nodeID)) {
          if (prim < numQuads) {
             vec3 p0, p1, p2, p3;
-             decodeQuadPositions(prim, p0, p1, p2, p3);
+            decodeQuadPositions(prim, p0, p1, p2, p3);
 
-             float t;
-             vec2 bary;
-             if (intersectTri(ro, rd, p0, p1, p2, t, bary) && t < maxDist) {
-                if (shadowTriHit(prim, bary, 0, t, tint)) return vec3(0.0);
-             }
-             if (intersectTri(ro, rd, p0, p2, p3, t, bary) && t < maxDist) {
-                if (shadowTriHit(prim, bary, 1, t, tint)) return vec3(0.0);
-             }
+            float t;
+            vec2 bary;
+            if (intersectTri(ro, rd, p0, p1, p2, t, bary) && t < maxDist) {
+               if (shadowTriHit(prim, bary, 0, t, tint)) return vec3(0.0);
+            }
+            if (intersectTri(ro, rd, p0, p2, p3, t, bary) && t < maxDist) {
+               if (shadowTriHit(prim, bary, 1, t, tint)) return vec3(0.0);
+            }
          }
          nodeID = INVALID_ID;
          continue;

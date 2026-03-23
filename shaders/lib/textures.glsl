@@ -105,7 +105,7 @@ vec4 sampleEntitySpecular(uint textureID, vec2 uv) {
 
 #endif
 
-#ifdef AS_VERTEX
+#ifdef QUAD_WRITE
 
 uint textureMapInsert(uint textureId, ivec2 texSize, out bool isNew) {
    uint slot = textureId % MAX_TEXTURES;

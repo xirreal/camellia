@@ -3,7 +3,7 @@
 layout(triangles) in;
 layout(points, max_vertices = 0) out;
 
-#define AS_VERTEX
+#define QUAD_WRITE
 #include "/lib/storage.glsl"
 
 in vec3 vPlayerPos[];

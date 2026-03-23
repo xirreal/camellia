@@ -8,7 +8,7 @@ uniform vec3 shadowLightPosition;
 uniform bool firstPersonCamera;
 uniform vec3 cameraPosition;
 
-#define AS_VERTEX
+#define QUAD_WRITE
 #include "/lib/storage.glsl"
 #include "/lib/textures.glsl"
 

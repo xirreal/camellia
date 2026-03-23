@@ -1,6 +1,6 @@
 #version 460 compatibility
 
-#define AS_VERTEX
+#define QUAD_WRITE
 #include "/lib/storage.glsl"
 #include "/lib/textures.glsl"
 

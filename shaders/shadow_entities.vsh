@@ -12,7 +12,7 @@ uniform int gtextureId;
 uniform bool firstPersonCamera;
 uniform int entityId;
 
-#define AS_VERTEX
+#define QUAD_WRITE
 #include "/lib/storage.glsl"
 #include "/lib/textures.glsl"
 

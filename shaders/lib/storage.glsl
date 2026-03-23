@@ -48,7 +48,7 @@ vec3 unpackRGB565(uint p) {
 
 struct QuadData {
    uint encodedMaterial; // bits 0-23: blockID, bits 24-27: emission, bit 28: alphaTested, bit 29: translucent, bit 30: player
-   uint textureID;
+   uint textureID; // 32 bit but only 24 bits used, index into texture map buffer
    uint tint01; // low 16 = v0 RGB565, high 16 = v1 RGB565
    uint tint23; // low 16 = v2 RGB565, high 16 = v3 RGB565
    uint uv0; // packHalf2x16(v0.uv)
@@ -120,7 +120,7 @@ struct TextureInfo {
    uint sizeY;
 };
 
-#ifdef AS_VERTEX
+#ifdef QUAD_WRITE
 
 layout(std430, binding = 0) restrict buffer QuadDataBuffer {
    uint quadCount;

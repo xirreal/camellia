@@ -5,7 +5,7 @@ in vec4 at_midBlock;
 
 uniform mat4 shadowModelViewInverse;
 
-#define AS_VERTEX
+#define QUAD_WRITE
 #include "/lib/storage.glsl"
 
 void main() {
