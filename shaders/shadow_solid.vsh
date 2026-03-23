@@ -7,7 +7,6 @@ uniform mat4 shadowModelViewInverse;
 
 #define AS_VERTEX
 #include "/lib/storage.glsl"
-#include "/lib/encoding.glsl"
 
 void main() {
    gl_Position = vec4(vec3(11.0), 1.0);
@@ -21,16 +20,13 @@ void main() {
    vec3 color = gl_Color.rgb;
    float emission = at_midBlock.w;
 
-   uint textureID = 0; // solid blocks get id 0
+   uint quadID, slot;
+   getQuadWriteSlot(quadID, slot);
+   if (quadID == INVALID_ID) return;
 
-   Vertex vertex = Vertex(playerSpacePos, encodeVertexData(color, emission, false), coord, uint(mc_Entity.x), textureID);
-
-   uint vertexId = getVertexWriteIndex();
-
-   if (vertexId == INVALID_ID) {
-      return;
+   if (slot == 0u) {
+      writeQuadMaterial(quadID, uint(mc_Entity.x), 0u, emission, false, false, false);
    }
-
-   vertices[vertexId] = vertex;
+   writeQuadVertex(quadID, slot, playerSpacePos, coord, color);
    updateSceneBounds(playerSpacePos);
 }

@@ -74,10 +74,10 @@ bool intersectTri(vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, out float t, out 
 
 void decodeQuadPositions(uint quadID, out vec3 p0, out vec3 p1, out vec3 p2, out vec3 p3) {
    QuadPositions qp = quadPositions[quadID];
-   p0 = qp.d0.xyz;
-   p1 = vec3(qp.d0.w, qp.d1.xy);
-   p2 = vec3(qp.d1.zw, qp.d2.x);
-   p3 = qp.d2.yzw;
+   p0 = vec3(qp.p[0], qp.p[1], qp.p[2]);
+   p1 = vec3(qp.p[3], qp.p[4], qp.p[5]);
+   p2 = vec3(qp.p[6], qp.p[7], qp.p[8]);
+   p3 = vec3(qp.p[9], qp.p[10], qp.p[11]);
 }
 
 bool intersectQuadGeom(uint quadID, vec3 ro, vec3 rd, inout float tHit, out vec2 hitBary, out int hitTri) {
@@ -104,12 +104,22 @@ bool intersectQuadGeom(uint quadID, vec3 ro, vec3 rd, inout float tHit, out vec2
 }
 
 vec2 interpolateQuadUV(uint quadID, vec2 bary, int triIndex) {
-   vec2 uv1 = quads[quadID].v1.uv;
+   vec2 uv0 = quadUV(quadID, 0u);
    float w = 1.0 - bary.x - bary.y;
    if (triIndex == 0) {
-      return uv1 * w + quads[quadID].v2.uv * bary.x + quads[quadID].v3.uv * bary.y;
+      return uv0 * w + quadUV(quadID, 1u) * bary.x + quadUV(quadID, 2u) * bary.y;
    } else {
-      return uv1 * w + quads[quadID].v3.uv * bary.x + quads[quadID].v4.uv * bary.y;
+      return uv0 * w + quadUV(quadID, 2u) * bary.x + quadUV(quadID, 3u) * bary.y;
+   }
+}
+
+vec3 interpolateQuadTint(uint quadID, vec2 bary, int triIndex) {
+   vec3 c0 = quadTint(quadID, 0u);
+   float w = 1.0 - bary.x - bary.y;
+   if (triIndex == 0) {
+      return c0 * w + quadTint(quadID, 1u) * bary.x + quadTint(quadID, 2u) * bary.y;
+   } else {
+      return c0 * w + quadTint(quadID, 2u) * bary.x + quadTint(quadID, 3u) * bary.y;
    }
 }
 
@@ -145,44 +155,41 @@ TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer) {
 
       if (!isInternalNode(nodeID)) {
          if (prim < numQuads) {
-            #ifdef ALPHA_TEST
-            float prevT = res.t;
-            uint encoded = quads[prim].v1.encodedVertex; // prefetch before intersection
-            #else
-            uint encoded = quads[prim].v1.encodedVertex;
-            #endif
-            if (skipPlayer && isPlayerModel(encoded)) {
+             #ifdef ALPHA_TEST
+             float prevT = res.t;
+             #endif
+             if (skipPlayer && quadPlayerModel(prim)) {
                nodeID = INVALID_ID;
                continue;
             }
             vec2 hitBary;
             int hitTri;
             if (intersectQuadGeom(prim, ro, rd, res.t, hitBary, hitTri)) {
-               #ifdef ALPHA_TEST
-               bool transparent = false;
-               if (isAlphaTested(encoded)) {
-                  vec2 hitUV = interpolateQuadUV(prim, hitBary, hitTri);
-                  uint hitTexID = quads[prim].v1.textureID;
-                  if (hitTexID == 0u) {
-                     transparent = texture(blockAtlas, hitUV).a < alphaTestRef;
-                  }
-                  #ifdef ENTITY_TEXTURES
-                  else {
-                     transparent = sampleEntityTexture(hitTexID, hitUV).a < alphaTestRef;
-                  }
-                  #endif
-               }
-               if (transparent) {
-                  res.t = prevT;
-               } else
-               #endif
-               {
-                  res.hit = true;
-                  res.quadID = prim;
-                  res.triIndex = hitTri;
-                  resBary = hitBary;
-               }
-            }
+                #ifdef ALPHA_TEST
+                bool transparent = false;
+                if (quadAlphaTested(prim)) {
+                   vec2 hitUV = interpolateQuadUV(prim, hitBary, hitTri);
+                   uint hitTexID = quadTextureID(prim);
+                   if (hitTexID == 0u) {
+                      transparent = texture(blockAtlas, hitUV).a < alphaTestRef;
+                   }
+                   #ifdef ENTITY_TEXTURES
+                   else {
+                      transparent = sampleEntityTexture(hitTexID, hitUV).a < alphaTestRef;
+                   }
+                   #endif
+                }
+                if (transparent) {
+                   res.t = prevT;
+                } else
+                #endif
+                {
+                   res.hit = true;
+                   res.quadID = prim;
+                   res.triIndex = hitTri;
+                   resBary = hitBary;
+                }
+             }
          }
          nodeID = INVALID_ID;
          continue;
@@ -229,11 +236,10 @@ TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer) {
       if (dot(res.normal, rd) > 0.0) res.normal = -res.normal;
 
       res.uv = interpolateQuadUV(res.quadID, resBary, res.triIndex);
-      uint encoded = quads[res.quadID].v1.encodedVertex;
-      res.vertexData = decodeVertexData(encoded);
-      res.textureID = quads[res.quadID].v1.textureID;
-      res.translucent = isTranslucent(encoded);
-      res.waterSurface = quads[res.quadID].v1.blockID == 1u;
+      res.vertexData = vec4(interpolateQuadTint(res.quadID, resBary, res.triIndex), quadEmission(res.quadID));
+      res.textureID = quadTextureID(res.quadID);
+      res.translucent = quadTranslucent(res.quadID);
+      res.waterSurface = quadBlockID(res.quadID) == 1u;
    }
 
    return res;
@@ -245,25 +251,25 @@ TraceResult traceBVH(vec3 ro, vec3 rd) {
 
 // Evaluate a shadow tri hit for the tinted shadow ray.
 // Returns true if the ray is fully blocked (tint zeroed or opaque hit).
-bool shadowTriHit(uint prim, uint encoded, vec2 bary, int triIndex, float hitT, inout vec3 tint) {
-   if (isTranslucent(encoded)) {
+bool shadowTriHit(uint prim, vec2 bary, int triIndex, float hitT, inout vec3 tint) {
+   if (quadTranslucent(prim)) {
       // Water: apply absorption-based tinting
-      if (quads[prim].v1.blockID == 1u) {
-         vec3 waterTint = pow(decodeVertexData(encoded).rgb, vec3(2.2));
+      if (quadBlockID(prim) == 1u) {
+         vec3 waterTint = pow(interpolateQuadTint(prim, bary, triIndex), vec3(2.2));
          tint *= waterTint * exp(-WATER_ABSORPTION * max(hitT, 0.5));
          return tint == vec3(0.0);
       }
       vec2 hitUV = interpolateQuadUV(prim, bary, triIndex);
-      uint hitTexID = quads[prim].v1.textureID;
+      uint hitTexID = quadTextureID(prim);
       vec4 texSample = (hitTexID == 0u) ? texture(blockAtlas, hitUV) : vec4(1.0);
       float transparency = 1.0 - texSample.a;
-      tint *= mix(vec3(0.0), pow(texSample.rgb * decodeVertexData(encoded).rgb, vec3(2.2)), transparency);
+      tint *= mix(vec3(0.0), pow(texSample.rgb * interpolateQuadTint(prim, bary, triIndex), vec3(2.2)), transparency);
       return tint == vec3(0.0);
    } else {
       #ifdef ALPHA_TEST
-      if (!isAlphaTested(encoded)) return true;
+      if (!quadAlphaTested(prim)) return true;
       vec2 hitUV = interpolateQuadUV(prim, bary, triIndex);
-      uint hitTexID = quads[prim].v1.textureID;
+      uint hitTexID = quadTextureID(prim);
       if (hitTexID == 0u) {
          return texture(blockAtlas, hitUV).a >= alphaTestRef;
       } else {
@@ -305,17 +311,16 @@ vec3 traceShadowTinted(vec3 ro, vec3 rd, float maxDist) {
       if (!isInternalNode(nodeID)) {
          if (prim < numQuads) {
             vec3 p0, p1, p2, p3;
-            decodeQuadPositions(prim, p0, p1, p2, p3);
-            uint encoded = quads[prim].v1.encodedVertex;
+             decodeQuadPositions(prim, p0, p1, p2, p3);
 
-            float t;
-            vec2 bary;
-            if (intersectTri(ro, rd, p0, p1, p2, t, bary) && t < maxDist) {
-               if (shadowTriHit(prim, encoded, bary, 0, t, tint)) return vec3(0.0);
-            }
-            if (intersectTri(ro, rd, p0, p2, p3, t, bary) && t < maxDist) {
-               if (shadowTriHit(prim, encoded, bary, 1, t, tint)) return vec3(0.0);
-            }
+             float t;
+             vec2 bary;
+             if (intersectTri(ro, rd, p0, p1, p2, t, bary) && t < maxDist) {
+                if (shadowTriHit(prim, bary, 0, t, tint)) return vec3(0.0);
+             }
+             if (intersectTri(ro, rd, p0, p2, p3, t, bary) && t < maxDist) {
+                if (shadowTriHit(prim, bary, 1, t, tint)) return vec3(0.0);
+             }
          }
          nodeID = INVALID_ID;
          continue;

@@ -25,8 +25,8 @@ void main() {
       uint quadID = getClusterPrimID(ci);
 
       if (quadID < N) {
-         Quad q = quads[quadID];
-         vec3 quadCenter = (q.v1.position + q.v2.position + q.v3.position + q.v4.position) * 0.25;
+         QuadPositions qp = quadPositions[quadID];
+         vec3 quadCenter = (vec3(qp.p[0], qp.p[1], qp.p[2]) + vec3(qp.p[3], qp.p[4], qp.p[5]) + vec3(qp.p[6], qp.p[7], qp.p[8]) + vec3(qp.p[9], qp.p[10], qp.p[11])) * 0.25;
 
          vec3 sceneMin = getSceneMin();
          vec3 sceneMax = getSceneMax();

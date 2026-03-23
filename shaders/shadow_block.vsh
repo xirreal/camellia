@@ -11,7 +11,6 @@ uniform int gtextureId = 0;
 
 #define AS_VERTEX
 #include "/lib/storage.glsl"
-#include "/lib/encoding.glsl"
 #include "/lib/textures.glsl"
 
 void main() {
@@ -32,36 +31,35 @@ void main() {
    ivec2 tSize = textureSize(gtexture, 0);
 
    bool isNew = false;
-   uint slot = INVALID_ID;
+   uint texSlot = INVALID_ID;
 
    if (subgroupElect()) {
-      slot = textureMapInsert(uint(gtextureId), tSize, isNew);
+      texSlot = textureMapInsert(uint(gtextureId), tSize, isNew);
    }
 
-   slot = subgroupBroadcastFirst(slot);
+   texSlot = subgroupBroadcastFirst(texSlot);
    isNew = subgroupBroadcastFirst(isNew);
 
-   if (isNew && slot != INVALID_ID) {
+   if (isNew && texSlot != INVALID_ID) {
       #ifdef ENTITY_PBR
-      copyTextureWithPBR(textureMap[slot].baseOffset, gtexture, normals, specular, tSize, textureSize(normals, 0), textureSize(specular, 0));
+      copyTextureWithPBR(textureMap[texSlot].baseOffset, gtexture, normals, specular, tSize, textureSize(normals, 0), textureSize(specular, 0));
       #else
-      copyTexture(textureMap[slot].baseOffset, gtexture, tSize);
+      copyTexture(textureMap[texSlot].baseOffset, gtexture, tSize);
       #endif
    }
 
-   textureID = (slot == INVALID_ID) ? 0 : slot + 1u;
+   textureID = (texSlot == INVALID_ID) ? 0 : texSlot + 1u;
    #else
    textureID = 1; // sentinel to disable alpha testing in rt loop
    #endif
 
-   Vertex vertex = Vertex(playerSpacePos, encodeVertexData(color, emission, true), coord, uint(mc_Entity.x), textureID);
+   uint quadID, quadSlot;
+   getQuadWriteSlot(quadID, quadSlot);
+   if (quadID == INVALID_ID) return;
 
-   uint vertexId = getVertexWriteIndex();
-
-   if (vertexId == INVALID_ID) {
-      return;
+   if (quadSlot == 0u) {
+      writeQuadMaterial(quadID, uint(mc_Entity.x), textureID, emission, true, false, false);
    }
-
-   vertices[vertexId] = vertex;
+   writeQuadVertex(quadID, quadSlot, playerSpacePos, coord, color);
    updateSceneBounds(playerSpacePos);
 }

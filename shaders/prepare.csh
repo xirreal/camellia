@@ -27,7 +27,7 @@ void main() {
    vec3 sceneMin;
    vec3 sceneMax;
    if (subgroupElect()) {
-      numQuads = min(count >> 2u, MAX_QUAD_COUNT);
+      numQuads = min(quadCount, MAX_QUAD_COUNT);
       sceneMax = getSceneMax();
       sceneMin = getSceneMin();
    }
@@ -36,12 +36,11 @@ void main() {
    sceneMax = subgroupBroadcastFirst(sceneMax);
 
    if (gID < numQuads) {
-      Quad q = quads[gID];
-
-      vec3 p1 = q.v1.position;
-      vec3 p2 = q.v2.position;
-      vec3 p3 = q.v3.position;
-      vec3 p4 = q.v4.position;
+      QuadPositions qp = quadPositions[gID];
+      vec3 p1 = vec3(qp.p[0], qp.p[1], qp.p[2]);
+      vec3 p2 = vec3(qp.p[3], qp.p[4], qp.p[5]);
+      vec3 p3 = vec3(qp.p[6], qp.p[7], qp.p[8]);
+      vec3 p4 = vec3(qp.p[9], qp.p[10], qp.p[11]);
 
       vec3 quadMin = min(min(p1, p2), min(p3, p4));
       vec3 quadMax = max(max(p1, p2), max(p3, p4));
@@ -53,11 +52,6 @@ void main() {
       uint morton = encodeMorton3D(normCentroid);
 
       aabbs[gID] = AABB(quadMin, 0.0, quadMax, 0.0);
-      quadPositions[gID] = QuadPositions(
-            vec4(p1.xyz, p2.x),
-            vec4(p2.yz, p3.xy),
-            vec4(p3.z, p4.xyz)
-         );
       mortonCodes[gID] = morton;
       clusterIndices[gID] = makeLeafID(gID);
       parentIDs[gID] = INVALID_ID;

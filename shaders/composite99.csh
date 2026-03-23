@@ -40,16 +40,8 @@ void main() {
    beginText(ivec2(coord * 0.25), ivec2(2, int(viewHeight * 0.25) - 1));
    text.bgCol = vec4(0.0, 0.0, 0.0, 0.7);
 
-   uint numQuads = count / 4u;
-   float fullness = float(count) / float(MAX_VERTEX_COUNT);
-
-   text.fgCol = vec4(1.0);
-   printString((_V, _e, _r, _t, _i, _c, _e, _s, _colon));
-   text.fgCol = vec4(gradient(fullness), 1.0);
-   printUnsignedIntWithSeparators(count);
-   printString((_slash));
-   printUnsignedIntWithSeparators(MAX_VERTEX_COUNT);
-   printLine();
+   uint numQuads = quadCount;
+   float fullness = float(numQuads) / float(MAX_QUAD_COUNT);
 
    text.fgCol = vec4(1.0);
    printString((_Q, _u, _a, _d, _s, _colon));
@@ -123,7 +115,7 @@ void main() {
    text.fgCol = vec4(1.0);
    printString((_S, _o, _r, _t, _e, _d, _colon));
 
-   uint numLeaves = count >> 2u;
+   uint numLeaves = quadCount;
    uint sortErrors = control.sortErrors;
 
    if (sortErrors == 0u) {

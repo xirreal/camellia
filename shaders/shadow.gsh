@@ -5,7 +5,6 @@ layout(points, max_vertices = 0) out;
 
 #define AS_VERTEX
 #include "/lib/storage.glsl"
-#include "/lib/encoding.glsl"
 
 in vec3 vPlayerPos[];
 in vec2 vCoord[];
@@ -31,30 +30,23 @@ void main() {
    uvec4 ballot = subgroupBallot(true);
    uint ballotCount = subgroupBallotBitCount(ballot);
 
-   uint baseId = INVALID_ID;
+   uint baseQuad = INVALID_ID;
    if (subgroupElect()) {
-      baseId = atomicAdd(count, ballotCount * 4u);
+      baseQuad = atomicAdd(quadCount, ballotCount);
    }
-   baseId = subgroupBroadcastFirst(baseId);
+   baseQuad = subgroupBroadcastFirst(baseQuad);
 
-   if (baseId + 3u >= MAX_VERTEX_COUNT) return;
+   if (baseQuad + ballotCount > MAX_QUAD_COUNT) return;
 
    uint lane = subgroupBallotExclusiveBitCount(ballot);
+   uint quadID = baseQuad + lane;
 
-   baseId += lane * 4u;
+   writeQuadMaterial(quadID, vBlockId[i0], 0u, vEmission[i0], false, false, false);
 
-   uint encoded0 = encodeVertexData(vColor[i0], vEmission[i0], false);
-   uint encoded1 = encodeVertexData(vColor[i1], vEmission[i1], false);
-   uint encoded2 = encodeVertexData(vColor[i2], vEmission[i2], false);
-   uint encoded3 = encodeVertexData(vColor[i2], vEmission[i2], false);
-
-   uint blockId = vBlockId[i0];
-   uint textureId = 0u;
-
-   vertices[baseId + 0u] = Vertex(vPlayerPos[i0], encoded0, vCoord[i0], blockId, textureId);
-   vertices[baseId + 1u] = Vertex(vPlayerPos[i1], encoded1, vCoord[i1], blockId, textureId);
-   vertices[baseId + 2u] = Vertex(vPlayerPos[i2], encoded2, vCoord[i2], blockId, textureId);
-   vertices[baseId + 3u] = Vertex(pos3, encoded3, uv3, blockId, textureId);
+   writeQuadVertex(quadID, 0u, vPlayerPos[i0], vCoord[i0], vColor[i0]);
+   writeQuadVertex(quadID, 1u, vPlayerPos[i1], vCoord[i1], vColor[i1]);
+   writeQuadVertex(quadID, 2u, vPlayerPos[i2], vCoord[i2], vColor[i2]);
+   writeQuadVertex(quadID, 3u, pos3, uv3, vColor[i2]);
 
    vec3 localMin = min(min(vPlayerPos[i0], vPlayerPos[i1]), min(vPlayerPos[i2], pos3));
    vec3 localMax = max(max(vPlayerPos[i0], vPlayerPos[i1]), max(vPlayerPos[i2], pos3));

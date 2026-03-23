@@ -33,16 +33,31 @@ uint encodeMorton3D(vec3 normalizedPos) {
    return morton | x_top | z_top;
 }
 
-struct Vertex {
-   vec3 position;
-   uint encodedVertex;
-   vec2 uv;
-   uint blockID;
-   uint textureID;
-}; // pad to 32 bytes, should make loads better than 28
+uint packRGB565(vec3 c) {
+   uvec3 u = uvec3(round(clamp(c, 0.0, 1.0) * vec3(31.0, 63.0, 31.0)));
+   return u.r | (u.g << 5u) | (u.b << 11u);
+}
 
-const uint MAX_VERTEX_COUNT = 33554432u;
-const uint MAX_QUAD_COUNT = MAX_VERTEX_COUNT / 4u;
+vec3 unpackRGB565(uint p) {
+   return vec3(
+      float(p & 31u) / 31.0,
+      float((p >> 5u) & 63u) / 63.0,
+      float((p >> 11u) & 31u) / 31.0
+   );
+}
+
+struct QuadData {
+   uint encodedMaterial; // bits 0-23: blockID, bits 24-27: emission, bit 28: alphaTested, bit 29: translucent, bit 30: player
+   uint textureID;
+   uint tint01; // low 16 = v0 RGB565, high 16 = v1 RGB565
+   uint tint23; // low 16 = v2 RGB565, high 16 = v3 RGB565
+   uint uv0; // packHalf2x16(v0.uv)
+   uint uv1; // packHalf2x16(v1.uv)
+   uint uv2; // packHalf2x16(v2.uv)
+   uint uv3; // packHalf2x16(v3.uv)
+}; // 32 bytes
+
+const uint MAX_QUAD_COUNT = 8388608u;
 
 const uint INVALID_ID = 0xFFFFFFFFu;
 
@@ -93,7 +108,7 @@ layout(std430, binding = 1) buffer ControlBuffer {
    uint frozenFirstPerson; // 260
    float autofocusDist; // 264
    vec4 frozenCameraPos; // 268
-   } control;
+} control;
 
 const uint MAX_TEXTURES = 65536u;
 const uint MAX_TEXTURE_DATA = 268435456u; // 1GiB of total data
@@ -107,27 +122,64 @@ struct TextureInfo {
 
 #ifdef AS_VERTEX
 
-layout(std430, binding = 0) restrict buffer VertexBuffer {
-   uint count;
-   Vertex vertices[];
+layout(std430, binding = 0) restrict buffer QuadDataBuffer {
+   uint quadCount;
+   QuadData quadData[];
 };
 
-uint getVertexWriteIndex() {
+layout(std430, binding = 10) restrict writeonly buffer QuadPosBuffer {
+   float quadPosData[];
+};
+
+void getQuadWriteSlot(out uint quadID, out uint slot) {
    uvec4 activeMask = subgroupBallot(true);
    uint activeThreads = subgroupBallotBitCount(activeMask);
-   uint allocatedCount = (activeThreads + 3u) & ~0x3u; // round up to nearest multiple of 4, for triangle strips
+   uint quadAlloc = (activeThreads + 3u) >> 2u;
 
-   uint baseVertexId = INVALID_ID;
+   uint baseQuad = INVALID_ID;
    if (subgroupElect()) {
-      baseVertexId = atomicAdd(count, allocatedCount);
+      baseQuad = atomicAdd(quadCount, quadAlloc);
    }
-   baseVertexId = subgroupBroadcastFirst(baseVertexId);
+   baseQuad = subgroupBroadcastFirst(baseQuad);
 
    uint lane = subgroupBallotExclusiveBitCount(activeMask);
+   quadID = baseQuad + (lane >> 2u);
+   slot = lane & 3u;
 
-   if (baseVertexId + allocatedCount > MAX_VERTEX_COUNT) return INVALID_ID;
+   if (quadID >= MAX_QUAD_COUNT) quadID = INVALID_ID;
+}
 
-   return baseVertexId + lane;
+void writeQuadVertex(uint quadID, uint slot, vec3 pos, vec2 uv, vec3 tintColor) {
+   uint base = quadID * 12u + slot * 3u;
+   quadPosData[base + 0u] = pos.x;
+   quadPosData[base + 1u] = pos.y;
+   quadPosData[base + 2u] = pos.z;
+
+   uint packedUV = packHalf2x16(uv);
+   if (slot == 0u) quadData[quadID].uv0 = packedUV;
+   else if (slot == 1u) quadData[quadID].uv1 = packedUV;
+   else if (slot == 2u) quadData[quadID].uv2 = packedUV;
+   else quadData[quadID].uv3 = packedUV;
+
+   uint rgb565 = packRGB565(tintColor);
+   if (slot < 2u) {
+      uint shift = slot * 16u;
+      atomicOr(quadData[quadID].tint01, rgb565 << shift);
+   } else {
+      uint shift = (slot - 2u) * 16u;
+      atomicOr(quadData[quadID].tint23, rgb565 << shift);
+   }
+}
+
+void writeQuadMaterial(uint quadID, uint blockID, uint textureID, float emission, bool alphaTested, bool translucent, bool isPlayer) {
+   uint mat = (uint(clamp(emission, 0.0, 15.0))) |
+         (alphaTested ? 0x10u : 0u) |
+         (translucent ? 0x20u : 0u) |
+         (isPlayer ? 0x40u : 0u);
+   quadData[quadID].encodedMaterial = (blockID & 0x00FFFFFFu) | (mat << 24u);
+   quadData[quadID].textureID = textureID;
+   quadData[quadID].tint01 = 0u;
+   quadData[quadID].tint23 = 0u;
 }
 
 layout(std430, binding = 8) restrict buffer TextureInfosBuffer {
@@ -141,16 +193,9 @@ layout(std430, binding = 9) restrict buffer TextureDataBuffer {
 
 #else
 
-struct Quad {
-   Vertex v1;
-   Vertex v2;
-   Vertex v3;
-   Vertex v4;
-}; // 128 bytes
-
-layout(std430, binding = 0) restrict readonly buffer QuadBuffer {
-   uint count;
-   Quad quads[];
+layout(std430, binding = 0) restrict readonly buffer QuadDataBuffer {
+   uint quadCount;
+   QuadData quadData[];
 };
 
 layout(std430, binding = 8) restrict readonly buffer TextureInfosBuffer {
@@ -163,6 +208,41 @@ layout(std430, binding = 9) restrict readonly buffer TextureDataBuffer {
 };
 
 #endif
+
+uint quadBlockID(uint q) {
+   return quadData[q].encodedMaterial & 0x00FFFFFFu;
+}
+uint quadMaterial(uint q) {
+   return quadData[q].encodedMaterial >> 24u;
+}
+float quadEmission(uint q) {
+   return float(quadMaterial(q) & 0x0Fu);
+}
+bool quadAlphaTested(uint q) {
+   return (quadMaterial(q) & 0x10u) != 0u;
+}
+bool quadTranslucent(uint q) {
+   return (quadMaterial(q) & 0x20u) != 0u;
+}
+bool quadPlayerModel(uint q) {
+   return (quadMaterial(q) & 0x40u) != 0u;
+}
+uint quadTextureID(uint q) {
+   return quadData[q].textureID;
+}
+
+vec2 quadUV(uint q, uint i) {
+   uint p = (i == 0u) ? quadData[q].uv0 :
+      (i == 1u) ? quadData[q].uv1 :
+      (i == 2u) ? quadData[q].uv2 : quadData[q].uv3;
+   return unpackHalf2x16(p);
+}
+
+vec3 quadTint(uint q, uint i) {
+   uint w = (i < 2u) ? quadData[q].tint01 : quadData[q].tint23;
+   uint s = (i & 1u) * 16u;
+   return unpackRGB565((w >> s) & 0xFFFFu);
+}
 
 uint floatToOrderedUint(float v) {
    int i = floatBitsToInt(v);

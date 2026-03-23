@@ -57,7 +57,7 @@ void main() {
    if (id == 0) {
       control.sceneFrozen = 0u;
 
-      count = 0u;
+      quadCount = 0u;
 
       control.boundsMinX = 0xFFFFFFFFu;
       control.boundsMinY = 0xFFFFFFFFu;

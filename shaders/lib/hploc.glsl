@@ -40,9 +40,7 @@ struct BVH2Node {
 }; // 64 bytes
 
 struct QuadPositions {
-   vec4 d0; // p0.xyz, p1.x
-   vec4 d1; // p1.yz, p2.xy
-   vec4 d2; // p2.z, p3.xyz
+   float p[12]; // p0.xyz, p1.xyz, p2.xyz, p3.xyz
 }; // 48 bytes
 
 layout(std430, binding = 2) restrict buffer AABBBuffer {

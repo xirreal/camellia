@@ -32,15 +32,15 @@ void main() {
    #endif
 
    uint gID = gl_GlobalInvocationID.x;
-   uint numQuads = min(count >> 2u, MAX_QUAD_COUNT);
+   uint numQuads = min(quadCount, MAX_QUAD_COUNT);
 
    if (gID >= numQuads) return;
 
-   Quad q = quads[gID];
-   vec3 p0 = q.v1.position;
-   vec3 p1 = q.v2.position;
-   vec3 p2 = q.v3.position;
-   vec3 p3 = q.v4.position;
+   QuadPositions qp = quadPositions[gID];
+   vec3 p0 = vec3(qp.p[0], qp.p[1], qp.p[2]);
+   vec3 p1 = vec3(qp.p[3], qp.p[4], qp.p[5]);
+   vec3 p2 = vec3(qp.p[6], qp.p[7], qp.p[8]);
+   vec3 p3 = vec3(qp.p[9], qp.p[10], qp.p[11]);
 
    // vertex nan/inf checks
    if (hasNanInf(p0) || hasNanInf(p1) || hasNanInf(p2) || hasNanInf(p3)) {
