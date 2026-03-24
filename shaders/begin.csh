@@ -39,7 +39,7 @@ void main() {
       }
    }
 
-   if (hideGUI && frameCounter > 5) {
+   if (hideGUI && frameCounter > 15) {
       if (id == 0) {
          if (control.sceneFrozen == 0u) {
             control.frozenProjInv = gbufferProjectionInverse;

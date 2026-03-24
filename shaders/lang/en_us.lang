@@ -30,3 +30,8 @@ option.DOF_BLADES=Aperture Blades
 option.DOF_BLADES.comment=Number of aperture blades. Controls the shape of out-of-focus highlights (bokeh). 0 = perfectly circular, 5-7 = common in real lenses, higher values approach a circle.
 value.DOF_BLADES.0=Circle
 
+option.MODE=Mode
+value.MODE.0=Pathtrace
+value.MODE.1=Raytraced shadows
+value.MODE.2=BVH debug
+value.MODE.3=Skip

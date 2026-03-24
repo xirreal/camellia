@@ -4,6 +4,7 @@
 //#define ENABLE_SORT_VALIDATION
 //#define ENABLE_QUAD_VALIDATION
 //#define ENTITY_TEXTURES_DEBUG
+#define MODE 1 //[0 1 2 3]
 
 layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 
@@ -31,9 +32,12 @@ void main() {
 
    if (coord.x >= int(viewWidth) || coord.y >= int(viewHeight)) return;
 
+   #if MODE == 2
+   vec3 color = texture(colortex5, vec2(coord + 0.5) / vec2(viewWidth, viewHeight)).rgb;
+   #else
    vec3 hdr = texture(colortex5, vec2(coord + 0.5) / vec2(viewWidth, viewHeight)).rgb;
-
    vec3 color = agxComplete(hdr, agxLut);
+   #endif
 
    #ifdef ENABLE_DEBUG_OVERLAY
 

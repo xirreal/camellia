@@ -29,7 +29,7 @@ uniform float near;
 const float CLOSE_SHADOW_BIAS = 0.000001;
 const float FAR_SHADOW_BIAS = 0.0001;
 const float SHADOW_MAX_DIST = 256.0;
-const float SKY_BRIGHTNESS = 0.6;
+const float SKY_BRIGHTNESS = 1.0;
 const float SUN_BRIGHTNESS = 2.5;
 
 uint rngState;
@@ -144,7 +144,7 @@ void main() {
    }
 
    vec3 sunLight = NdotL * shadow * SUN_BRIGHTNESS * vec3(1.0, 1.0, 1.0);
-   vec3 ambient = getSkyColor(vec3(0.0, 1.0, 0.0), lightDir);
+   vec3 ambient = getSkyColor(hit.normal, lightDir) * 0.55;
    vec3 lighting = sunLight + ambient;
 
    float emission = hit.vertexData.a;
