@@ -75,7 +75,7 @@ const uint SORT_SCRATCH_VALS = MAX_QUAD_COUNT;
 const uint SORT_SCRATCH_PASS_HIST = MAX_QUAD_COUNT * 2u;
 const uint SORT_SCRATCH_DIGIT_TOTALS = SORT_SCRATCH_PASS_HIST + RADIX * SORT_MAX_WORKGROUPS;
 
-layout(std430, binding = 1) coherent buffer ControlBuffer {
+layout(std430, binding = 1) restrict buffer ControlBuffer {
    uint sortDispatchX; // 0
    uint sortDispatchY; // 4
    uint sortDispatchZ; // 8

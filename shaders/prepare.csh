@@ -27,6 +27,8 @@ void main() {
       vec3 p3 = vec3(qp.p[6], qp.p[7], qp.p[8]);
       vec3 p4 = vec3(qp.p[9], qp.p[10], qp.p[11]);
 
+      vec3 quadMin = min(min(p1, p2), min(p3, p4));
+      vec3 quadMax = max(max(p1, p2), max(p3, p4));
       vec3 quadCenter = (p1 + p2 + p3 + p4) * 0.25;
 
       vec3 range = max(sceneMax - sceneMin, vec3(1e-9));
@@ -34,6 +36,7 @@ void main() {
       vec3 normCentroid = (quadCenter - sceneMin) / range;
       uint morton = encodeMorton3D(normCentroid);
 
+      aabbs[gID] = AABB(quadMin, 0.0, quadMax, 0.0);
       mortonCodes[gID] = morton;
       clusterIndices[gID] = makeLeafID(gID);
       parentIDs[gID] = INVALID_ID;
