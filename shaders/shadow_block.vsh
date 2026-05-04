@@ -13,14 +13,14 @@ uniform int gtextureId = 0;
 #include "/lib/storage.glsl"
 #include "/lib/textures.glsl"
 
-#ifdef MC_VENDOR_NVIDIA
+#ifdef MC_GL_VENDOR_NVIDIA
 out gl_PerVertex {
    flat float16_t gl_Position;
 };
 #endif
 
 void main() {
-   #ifdef MC_VENDOR_NVIDIA
+   #ifdef MC_GL_VENDOR_NVIDIA
    gl_Position = float16_t(0.0 / 0.0);
    #else
    gl_Position = vec4(0.0 / 0.0);

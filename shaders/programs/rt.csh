@@ -144,7 +144,7 @@ void main() {
    }
 
    vec3 sunLight = NdotL * shadow * SUN_BRIGHTNESS * vec3(1.0, 1.0, 1.0);
-   vec3 ambient = getSkyColor(hit.normal, lightDir) * 0.55;
+   vec3 ambient = mix(getSkyColor(hit.normal, lightDir), vec3(1.0), 0.25) * 0.35;
    vec3 lighting = sunLight + ambient;
 
    float emission = hit.vertexData.a;

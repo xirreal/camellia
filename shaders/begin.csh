@@ -5,6 +5,7 @@ uniform bool hideGUI;
 uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelViewInverse;
 uniform vec3 shadowLightPosition;
+uniform vec3 sunPosition;
 uniform bool firstPersonCamera;
 uniform vec3 cameraPosition;
 
@@ -45,10 +46,23 @@ void main() {
             control.frozenProjInv = gbufferProjectionInverse;
             control.frozenModelViewInv = gbufferModelViewInverse;
             control.frozenLightPos = vec4(shadowLightPosition, 0.0);
+            control.frozenSunPos = vec4(sunPosition, 0.0);
             control.frozenFirstPerson = firstPersonCamera ? 1u : 0u;
             control.frozenCameraPos = vec4(cameraPosition, 0.0);
          }
          control.sceneFrozen = 1u;
+
+         control.prepareDispatchX = 0u;
+         control.prepareDispatchY = 1u;
+         control.prepareDispatchZ = 1u;
+
+         control.sortDispatchX = 0u;
+         control.sortDispatchY = 1u;
+         control.sortDispatchZ = 1u;
+
+         control.hplocDispatchX = 0u;
+         control.hplocDispatchY = 1u;
+         control.hplocDispatchZ = 1u;
       }
       return;
    }
@@ -70,6 +84,10 @@ void main() {
       control.sortTotal = 0u;
       control.sortErrors = 0u;
       control.pairErrors = 0u;
+
+      control.prepareDispatchX = SORT_MAX_WORKGROUPS;
+      control.prepareDispatchY = 1u;
+      control.prepareDispatchZ = 1u;
 
       control.sortDispatchX = 0u;
       control.sortDispatchY = 1u;

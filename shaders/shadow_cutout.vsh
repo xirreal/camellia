@@ -8,14 +8,14 @@ uniform mat4 shadowModelViewInverse;
 #define QUAD_WRITE
 #include "/lib/storage.glsl"
 
-#ifdef MC_VENDOR_NVIDIA
+#ifdef MC_GL_VENDOR_NVIDIA
 out gl_PerVertex {
    flat float16_t gl_Position;
 };
 #endif
 
 void main() {
-   #ifdef MC_VENDOR_NVIDIA
+   #ifdef MC_GL_VENDOR_NVIDIA
    gl_Position = float16_t(0.0 / 0.0);
    #else
    gl_Position = vec4(0.0 / 0.0);
@@ -25,7 +25,13 @@ void main() {
 
    vec3 normal = gl_NormalMatrix * gl_Normal;
    vec3 shadowViewSpacePos = (gl_ModelViewMatrix * vec4(gl_Vertex.xyz, 1.0)).xyz;
-   shadowViewSpacePos += normal * 0.00001;
+   const float NEAR_EPSILON = 0.000001;
+   const float FAR_EPSILON = 0.0001;
+
+   float depth = length(shadowViewSpacePos) / far;
+   float nearFactor = clamp(mix(NEAR_EPSILON, FAR_EPSILON, depth), 0.0, 1.0);
+
+   shadowViewSpacePos += normal * nearFactor;
    vec3 playerSpacePos = (shadowModelViewInverse * vec4(shadowViewSpacePos, 1.0)).xyz;
 
    vec2 coord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;

@@ -1,20 +1,86 @@
 #version 460
-#define MODE 1 //[0 1 2 3]
-#define PATHTRACE 0
-#define RAYTRACE 1
-#define DEBUG 2
 
-#if MODE == PATHTRACE
-#include "programs/pt.csh"
-#elif MODE == RAYTRACE
-#include "programs/rt.csh"
-#elif MODE == DEBUG
-#include "programs/debug.csh"
+//#define ENABLE_QUAD_VALIDATION
+
+#ifdef ENABLE_QUAD_VALIDATION
+const ivec3 workGroups = ivec3(131072, 1, 1);
 #else
+const ivec3 workGroups = ivec3(1, 1, 1);
+#endif
 
-layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+#include "/lib/storage.glsl"
+#include "/lib/hploc.glsl"
+
+layout(local_size_x = 64) in;
+
+const float MAX_QUAD_EXTENT = 64.0; // max world-space span on any axis
+const float COPLANAR_THRESHOLD = 0.15; // max normal deviation (dot < 1-thresh)
+const float DEGEN_AREA_THRESHOLD = 1e-8; // minimum triangle area squared
+
+bool hasNanInf(vec3 v) {
+   return any(isnan(v)) || any(isinf(v));
+}
+
+float triangleAreaSq(vec3 a, vec3 b, vec3 c) {
+   vec3 cr = cross(b - a, c - a);
+   return dot(cr, cr);
+}
 
 void main() {
+   #ifndef ENABLE_QUAD_VALIDATION
    return;
+   #endif
+
+   uint gID = gl_GlobalInvocationID.x;
+   uint numQuads = min(quadCount, uint(MAX_QUAD_COUNT));
+
+   if (gID >= numQuads) return;
+
+   QuadPositions qp = quadPositions[gID];
+   vec3 p0 = vec3(qp.p[0], qp.p[1], qp.p[2]);
+   vec3 p1 = vec3(qp.p[3], qp.p[4], qp.p[5]);
+   vec3 p2 = vec3(qp.p[6], qp.p[7], qp.p[8]);
+   vec3 p3 = vec3(qp.p[9], qp.p[10], qp.p[11]);
+
+   // vertex nan/inf checks
+   if (hasNanInf(p0) || hasNanInf(p1) || hasNanInf(p2) || hasNanInf(p3)) {
+      atomicAdd(control.quadErrNanInf, 1u);
+   }
+
+   // quad extent sanity check
+   vec3 qMin = min(min(p0, p1), min(p2, p3));
+   vec3 qMax = max(max(p0, p1), max(p2, p3));
+   vec3 extent = qMax - qMin;
+   if (extent.x > MAX_QUAD_EXTENT || extent.y > MAX_QUAD_EXTENT || extent.z > MAX_QUAD_EXTENT) {
+      atomicAdd(control.quadErrExtent, 1u);
+   }
+
+   // coplanar quad (should fail on fluids)
+   vec3 n1 = cross(p1 - p0, p2 - p0);
+   vec3 n2 = cross(p2 - p0, p3 - p0);
+   float len1 = length(n1);
+   float len2 = length(n2);
+   if (len1 > 1e-10 && len2 > 1e-10) {
+      n1 /= len1;
+      n2 /= len2;
+      float coplanarity = dot(n1, n2);
+      if (coplanarity < (1.0 - COPLANAR_THRESHOLD)) {
+         atomicAdd(control.quadErrCoplanar, 1u);
+      }
+   }
+
+   // degenerate quad (why do i get a few of these?)
+   float area1sq = triangleAreaSq(p0, p1, p2);
+   float area2sq = triangleAreaSq(p0, p2, p3);
+   if (area1sq < DEGEN_AREA_THRESHOLD || area2sq < DEGEN_AREA_THRESHOLD) {
+      atomicAdd(control.quadErrDegenerate, 1u);
+   }
+
+   // collapsed quad
+   float d01 = length(p1 - p0);
+   float d02 = length(p2 - p0);
+   float d03 = length(p3 - p0);
+   if (d01 < 1e-10 && d02 < 1e-10 && d03 < 1e-10) {
+      atomicAdd(control.quadErrCollapsed, 1u);
+   }
 }
-#endif

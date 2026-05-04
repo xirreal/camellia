@@ -3,13 +3,16 @@
 
 uniform float far;
 
+#ifdef MC_GL_VENDOR_NVIDIA
+#extension GL_NV_gpu_shader5 : require
+#endif
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_arithmetic : require
 #extension GL_KHR_shader_subgroup_ballot : require
 #extension GL_KHR_shader_subgroup_clustered : require
-#extension GL_KHR_shader_subgroup_vote : enable
-#extension GL_KHR_shader_subgroup_shuffle : enable
-#extension GL_KHR_shader_subgroup_shuffle_relative : enable
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_KHR_shader_subgroup_shuffle : require
+#extension GL_KHR_shader_subgroup_shuffle_relative : require
 
 uvec3 expandBits3D(uvec3 v) {
    v &= 0x000003ffu;
@@ -26,7 +29,7 @@ uint encodeMorton3D(vec3 normalizedPos) {
    uvec3 expanded = expandBits3D(i);
 
    uint x_top = (i.x & 0x0400u) << 20u;
-   uint z_top = (i.z & 0x0400u) << 20u;
+   uint z_top = (i.z & 0x0400u) << 21u;
 
    uint morton = (expanded.y << 2u) | (expanded.z << 1u) | expanded.x;
 
@@ -57,7 +60,7 @@ struct QuadData {
    uint uv3; // packHalf2x16(v3.uv)
 }; // 32 bytes
 
-const uint MAX_QUAD_COUNT = 8388608u;
+#define MAX_QUAD_COUNT 8388608 //[1048576 2097152 4194304 8388608 16777216 33554432]
 
 const uint INVALID_ID = 0xFFFFFFFFu;
 
@@ -72,42 +75,48 @@ const uint SORT_SCRATCH_VALS = MAX_QUAD_COUNT;
 const uint SORT_SCRATCH_PASS_HIST = MAX_QUAD_COUNT * 2u;
 const uint SORT_SCRATCH_DIGIT_TOTALS = SORT_SCRATCH_PASS_HIST + RADIX * SORT_MAX_WORKGROUPS;
 
-layout(std430, binding = 1) buffer ControlBuffer {
-   uint boundsMinX; // 0
-   uint boundsMinY; // 4
-   uint boundsMinZ; // 8
-   uint boundsMaxX; // 12
-   uint boundsMaxY; // 16
-   uint boundsMaxZ; // 20
-   uint numBVH2Nodes; // 24
-   uint sortTotal; // 28
-   uint sortErrors; // 32
-   uint pairErrors; // 36
-   uint sortDispatchX; // 40
-   uint sortDispatchY; // 44
-   uint sortDispatchZ; // 48
-   uint hplocDispatchX; // 52
-   uint hplocDispatchY; // 56
-   uint hplocDispatchZ; // 60
-   uint buildError; // 64
-   uint rootClusterID; // 68
-   uint quadErrNanInf; // 72
-   uint quadErrExtent; // 76
-   uint quadErrCoplanar; // 80
-   uint quadErrDegenerate; // 84
-   uint quadErrCollapsed; // 88
-   uint realCount1; // 92
-   uint realCount2; // 96
-   uint textureEntries; // 100
-   int lastTextureReloadCount; // 104
-   uint textureReloadDelay; // 108
-   uint sceneFrozen; // 112
-   mat4 frozenProjInv; // 116
-   mat4 frozenModelViewInv; // 180
-   vec4 frozenLightPos; // 244
-   uint frozenFirstPerson; // 260
-   float autofocusDist; // 264
-   vec4 frozenCameraPos; // 268
+layout(std430, binding = 1) coherent buffer ControlBuffer {
+   uint sortDispatchX; // 0
+   uint sortDispatchY; // 4
+   uint sortDispatchZ; // 8
+   uint hplocDispatchX; // 12
+   uint hplocDispatchY; // 16
+   uint hplocDispatchZ; // 20
+   uint prepareDispatchX; // 24
+   uint prepareDispatchY; // 28
+   uint prepareDispatchZ; // 32
+
+   uint boundsMinX;
+   uint boundsMinY;
+   uint boundsMinZ;
+   uint boundsMaxX;
+   uint boundsMaxY;
+   uint boundsMaxZ;
+   uint numBVH2Nodes;
+   uint sortTotal;
+   uint sortErrors;
+   uint pairErrors;
+   uint buildError;
+   uint rootClusterID;
+   uint quadErrNanInf;
+   uint quadErrExtent;
+   uint quadErrCoplanar;
+   uint quadErrDegenerate;
+   uint quadErrCollapsed;
+   uint realCount1;
+   uint realCount2;
+   uint textureEntries;
+   int lastTextureReloadCount;
+   uint textureReloadDelay;
+   uint sceneFrozen;
+   uint frozenFirstPerson;
+   float autofocusDist;
+
+   mat4 frozenProjInv;
+   mat4 frozenModelViewInv;
+   vec4 frozenLightPos;
+   vec4 frozenCameraPos;
+   vec4 frozenSunPos;
 } control;
 
 const uint MAX_TEXTURES = 65536u;

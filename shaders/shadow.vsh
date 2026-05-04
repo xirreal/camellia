@@ -1,4 +1,8 @@
-#version 460 compatibility
+#version 460
+
+#ifdef MC_GL_VENDOR_NVIDIA
+#extension GL_NV_gpu_shader5 : require
+#endif
 
 in vec2 mc_Entity;
 in vec4 at_midBlock;
@@ -12,14 +16,14 @@ flat out float vEmission;
 flat out vec3 vColor;
 flat out uint vBlockId;
 
-#ifdef MC_VENDOR_NVIDIA
+#ifdef MC_GL_VENDOR_NVIDIA
 out gl_PerVertex {
    flat float16_t gl_Position;
 };
 #endif
 
 void main() {
-   #ifdef MC_VENDOR_NVIDIA
+   #ifdef MC_GL_VENDOR_NVIDIA
    gl_Position = float16_t(0.0 / 0.0);
    #else
    gl_Position = vec4(0.0 / 0.0);

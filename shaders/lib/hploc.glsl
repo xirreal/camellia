@@ -21,13 +21,6 @@
 #define ERROR_OUT_OF_BOUNDS 1u
 #define ERROR_TIMEOUT 2u
 
-struct AABB {
-   vec3 minBounds;
-   float _pad0;
-   vec3 maxBounds;
-   float _pad1;
-}; // 32 bytes (i dont like the padding though grr)
-
 struct BVH2Node {
    vec3 c0Min;
    uint leftChild;
@@ -43,11 +36,7 @@ struct QuadPositions {
    float p[12]; // p0.xyz, p1.xyz, p2.xyz, p3.xyz
 }; // 48 bytes
 
-layout(std430, binding = 2) restrict buffer AABBBuffer {
-   AABB aabbs[];
-};
-
-layout(std430, binding = 3) restrict buffer MortonCodeBuffer {
+layout(std430, binding = 3) restrict coherent buffer MortonCodeBuffer {
    uint mortonCodes[];
 };
 
@@ -63,11 +52,11 @@ layout(std430, binding = 6) restrict buffer BVH2NodeBuffer {
    BVH2Node bvh2Nodes[];
 };
 
-layout(std430, binding = 7) restrict buffer SortScratchBuffer {
+layout(std430, binding = 7) restrict coherent buffer SortScratchBuffer {
    uint sortScratch[];
 };
 
-layout(std430, binding = 10) restrict buffer QuadPosBuffer {
+layout(std430, binding = 10) restrict coherent buffer QuadPosBuffer {
    QuadPositions quadPositions[];
 };
 
@@ -96,8 +85,13 @@ bool loadClusterAABB(uint clusterID, out vec3 bMin, out vec3 bMax) {
       bMax = max(node.c0Max, node.c1Max);
       return true;
    } else {
-      bMin = aabbs[primID].minBounds;
-      bMax = aabbs[primID].maxBounds;
+      QuadPositions qp = quadPositions[primID];
+      vec3 p0 = vec3(qp.p[0], qp.p[1], qp.p[2]);
+      vec3 p1 = vec3(qp.p[3], qp.p[4], qp.p[5]);
+      vec3 p2 = vec3(qp.p[6], qp.p[7], qp.p[8]);
+      vec3 p3 = vec3(qp.p[9], qp.p[10], qp.p[11]);
+      bMin = min(min(p0, p1), min(p2, p3));
+      bMax = max(max(p0, p1), max(p2, p3));
       return true;
    }
 }

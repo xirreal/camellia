@@ -7,6 +7,7 @@ uniform float viewWidth;
 uniform float viewHeight;
 uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelViewInverse;
+uniform vec3 sunPosition;
 uniform vec3 shadowLightPosition;
 uniform int frameCounter;
 uniform sampler2D colortex5;
@@ -14,7 +15,6 @@ uniform sampler2D blockAtlas;
 uniform sampler2D normalAtlas;
 uniform sampler2D specularAtlas;
 uniform int isEyeInWater;
-uniform vec3 cameraPosition;
 
 uniform int randomSeed;
 uniform float frameTimeCounter;
@@ -26,12 +26,11 @@ uniform float near;
 #include "/lib/encoding.glsl"
 #include "/lib/noise.glsl"
 #include "/lib/raytrace.glsl"
+#include "/lib/atmosphere.glsl"
+#include "/lib/sellmeier.glsl"
 
-const int MAX_BOUNCES = 4;
+const int MAX_BOUNCES = 3;
 const float SHADOW_MAX_DIST = 256.0;
-const float SKY_BRIGHTNESS = 1.6;
-const float SUN_BRIGHTNESS = 20.0;
-const float PI = 3.14159265359;
 
 #define DOF_ENABLED
 #define DOF_AUTOFOCUS
@@ -40,8 +39,6 @@ const float PI = 3.14159265359;
 #define DOF_FOCUS_DISTANCE 5.0  //[1.0 2.0 3.0 4.0 5.0 7.0 10.0 15.0 20.0 30.0 50.0 100.0]
 #define DOF_SENSOR_WIDTH 36.0   //[23.5 28.7 36.0 44.0 53.0]
 #define DOF_BLADES 0            //[0 3 4 5 6 7 8 9 10 11 12 13 14 15 16]
-
-const vec3 GLASS_IOR_RGB = vec3(1.510, 1.515, 1.525);
 
 const float WATER_IOR = 1.33;
 const float WATER_TINT_DESAT = 1.0;
@@ -71,9 +68,9 @@ void computeTangentBasis(uint quadID, int triIndex, vec3 geomNormal, out vec3 ta
    bitangent = normalize(cross(geomNormal, tangent)) * handedness;
 }
 
-vec3 labPBRMetalF0(int metalID);
+void adobeMetalLookup(int metalID, vec3 baseColor, out vec3 F0, out vec3 F82tint);
 
-void decodeLabPBR(vec3 hitPos, vec2 uv, vec3 geomNormal, uint quadID, int triIndex, uint textureID, vec3 baseColor, out vec3 normal, out float roughness, out float metallic, out vec3 F0, out float emission, out float ao, out float sss) {
+void decodeLabPBR(vec3 hitPos, vec2 uv, vec3 geomNormal, uint quadID, int triIndex, uint textureID, vec3 baseColor, out vec3 normal, out float roughness, out float metallic, out vec3 F0, out vec3 F82tint, out float emission, out float ao, out float sss) {
    vec4 nTexSample;
    vec4 spec;
 
@@ -86,6 +83,7 @@ void decodeLabPBR(vec3 hitPos, vec2 uv, vec3 geomNormal, uint quadID, int triInd
       roughness = 1.0;
       metallic = 0.0;
       F0 = vec3(0.04);
+      F82tint = vec3(1.0);
       emission = 0.0;
       ao = 1.0;
       sss = 0.0;
@@ -108,17 +106,16 @@ void decodeLabPBR(vec3 hitPos, vec2 uv, vec3 geomNormal, uint quadID, int triInd
 
    float g = spec.g;
    float g255 = g * 255.0;
+   F82tint = vec3(1.0);
    if (g255 <= 229.5) {
       metallic = 0.0;
-      F0 = vec3(clamp(g, 0.0, 0.6));
+      F0 = vec3(clamp(g, 0.0, 0.8));
    } else {
       metallic = 1.0;
       int metalID = int(g255 + 0.5);
-      if (metalID >= 230 && metalID <= 237) {
-         F0 = labPBRMetalF0(metalID);
-      } else {
-         F0 = baseColor;
-      }
+      // G == 255 (and any unrecognized metal id) falls back to using the albedo
+      // as F0 with a neutral white F82-tint (which reduces F82-tint to Schlick).
+      adobeMetalLookup(metalID, baseColor, F0, F82tint);
    }
 
    emission = (spec.a >= (254.5 / 255.0)) ? 0.0 : spec.a;
@@ -147,25 +144,27 @@ void decodeLabPBR(vec3 hitPos, vec2 uv, vec3 geomNormal, uint quadID, int triInd
 
 uint rngState;
 
-uint hash(uint x) {
-   x ^= x >> 16;
-   x *= 0x7feb352dU;
-   x ^= x >> 15;
-   x *= 0x846ca68bU;
-   x ^= x >> 16;
-   return x;
-}
-
-void initRNG(ivec2 coord, int frame, int _seed) {
-   uint seed = uint(coord.x) + uint(coord.y) * 4096u + uint(frame) * 16777216u + uint(_seed) * 65536u;
-   rngState = seed ^ hash(seed);
-}
-
 uint pcgHash() {
    uint state = rngState;
    rngState = rngState * 747796405u + 2891336453u;
    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
    return (word >> 22u) ^ word;
+}
+
+uint hash_u32(uint x) {
+   // Murmur3 finalizer
+   x ^= x >> 16u;
+   x *= 0x45d9f3bu;
+   x ^= x >> 16u;
+   return x;
+}
+
+void initRNG(ivec2 coord, int frame, int _seed) {
+   rngState = hash_u32(uint(coord.x))
+         ^ hash_u32(uint(coord.y) + 1000003u)
+         ^ hash_u32(uint(frame) + 2000003u)
+         ^ hash_u32(uint(_seed));
+   pcgHash();
 }
 
 float rand() {
@@ -198,43 +197,75 @@ float pow5(float x) {
    return x2 * x2 * x;
 }
 
-vec3 fresnelSchlickVec(vec3 F0, float cosTheta) {
-   return F0 + (1.0 - F0) * pow5(1.0 - cosTheta);
+// Fresnel for the Adobe Standard Material's "F82-tint" metallic model.
+// See "Novel aspects of the Adobe Standard Material" (Kutz, Hašan, Edmondson, 2023), §2.
+// When F82_tint == vec3(1.0) this reduces exactly to the standard Schlick
+// approximation, so the same function is used for dielectrics as well.
+vec3 fresnelF82Tint(vec3 F0, vec3 F82tint, float cosTheta) {
+   const float cosThetaMax = 1.0 / 7.0;
+   const float oneMinusCosThetaMax = 1.0 - cosThetaMax;
+   float omcm5 = pow5(oneMinusCosThetaMax);
+   float omcm6 = omcm5 * oneMinusCosThetaMax;
+
+   vec3 r = F0;
+   vec3 whiteMinusR = vec3(1.0) - r;
+   vec3 whiteMinusT = vec3(1.0) - F82tint;
+
+   vec3 bNum = (r + whiteMinusR * omcm5) * whiteMinusT;
+   float bDen = cosThetaMax * omcm6;
+   vec3 b = bNum / bDen;
+
+   float omc = 1.0 - cosTheta;
+   vec3 offset = (whiteMinusR - b * cosTheta * omc) * pow5(omc);
+   return clamp(r + offset, 0.0, 1.0);
 }
 
-vec3 conductorF0(vec3 n, vec3 k) {
-   vec3 n2 = n * n;
-   vec3 k2 = k * k;
-   vec3 num = (n2 - 2.0 * n + vec3(1.0)) + k2;
-   vec3 den = (n2 + 2.0 * n + vec3(1.0)) + k2;
-   return num / den;
-}
-
-const vec3 METAL_N[8] = vec3[8](
-      vec3(2.9114, 2.9497, 2.5845), // 230: iron
-      vec3(0.18299, 0.42108, 1.3734), // 231: gold
-      vec3(1.3456, 0.96521, 0.61722), // 232: aluminum
-      vec3(3.1071, 3.1812, 2.3230), // 233: chrome
-      vec3(0.27105, 0.67693, 1.3164), // 234: copper
-      vec3(1.9100, 1.8300, 1.4400), // 235: lead
-      vec3(2.3757, 2.0847, 1.8453), // 236: platinum
-      vec3(0.15943, 0.14512, 0.13547) // 237: silver
+// Adobe Standard Material parameter values for F0 ("Base Color") and F82 tint
+// ("Specular Edge Color"), calculated using measured spectral data and the full
+// Fresnel equations. Values are linear Rec. 709 from Table 1 of the Adobe
+// Standard Material Technical Documentation (May 2023).
+//
+// LabPBR metal-id mapping (G channel, 230..237):
+//   230 iron      -> Fe
+//   231 gold      -> Au
+//   232 aluminum  -> Al
+//   233 chrome    -> Cr
+//   234 copper    -> Cu
+//   235 lead      -> Hg (closest entry in the Adobe table)
+//   236 platinum  -> Pt
+//   237 silver    -> Ag
+const vec3 METAL_F0[8] = vec3[8](
+      vec3(0.8951, 0.8755, 0.8154), // 230: Fe (iron)
+      vec3(1.0000, 0.7099, 0.3148), // 231: Au (gold)
+      vec3(0.9157, 0.9226, 0.9236), // 232: Al (aluminum)
+      vec3(0.5496, 0.5561, 0.5531), // 233: Cr (chrome)
+      vec3(1.0000, 0.6504, 0.5274), // 234: Cu (copper)
+      vec3(0.7815, 0.7795, 0.7783), // 235: Hg (lead slot)
+      vec3(0.9602, 0.9317, 0.8260), // 236: Pt (platinum)
+      vec3(0.9868, 0.9830, 0.9667) // 237: Ag (silver)
    );
-const vec3 METAL_K[8] = vec3[8](
-      vec3(3.0893, 2.9318, 2.7670),
-      vec3(3.4242, 2.3459, 1.7704),
-      vec3(7.4746, 6.3995, 5.3031),
-      vec3(3.3314, 3.3291, 3.1350),
-      vec3(3.6092, 2.6248, 2.2921),
-      vec3(3.5100, 3.4000, 3.1800),
-      vec3(4.2655, 3.7153, 3.1365),
-      vec3(3.9291, 3.1900, 2.3808)
+const vec3 METAL_F82_TINT[8] = vec3[8](
+      vec3(0.8551, 0.8800, 0.8966), // 230: Fe
+      vec3(0.9408, 0.9636, 0.9099), // 231: Au
+      vec3(0.9090, 0.9365, 0.9596), // 232: Al
+      vec3(0.7372, 0.7511, 0.8170), // 233: Cr
+      vec3(0.9755, 0.9349, 0.9301), // 234: Cu
+      vec3(0.8103, 0.8532, 0.9046), // 235: Hg
+      vec3(0.9501, 0.9461, 0.9352), // 236: Pt
+      vec3(0.9929, 0.9961, 1.0000) // 237: Ag
    );
 
-vec3 labPBRMetalF0(int metalID) {
-   int idx = metalID - 230;
-   if (idx < 0 || idx > 7) return vec3(1.0);
-   return conductorF0(METAL_N[idx], METAL_K[idx]);
+void adobeMetalLookup(int metalID, vec3 baseColor, out vec3 F0, out vec3 F82tint) {
+   if (metalID >= 230 && metalID <= 237) {
+      int idx = metalID - 230;
+      F0 = METAL_F0[idx];
+      F82tint = METAL_F82_TINT[idx];
+   } else {
+      // G == 255 (and any other unrecognized metallic id): use the albedo as
+      // F0 and a neutral white F82-tint, which makes F82-tint reduce to Schlick.
+      F0 = baseColor;
+      F82tint = vec3(1.0);
+   }
 }
 
 float D_GGX(float NdotH, float roughness) {
@@ -244,12 +275,74 @@ float D_GGX(float NdotH, float roughness) {
    return a2 / (PI * denom * denom);
 }
 
-float G_Smith(float NdotV, float NdotL, float roughness) {
-   float r = roughness + 1.0;
-   float k = (r * r) / 8.0;
-   float gv = NdotV / (NdotV * (1.0 - k) + k);
-   float gl = NdotL / (NdotL * (1.0 - k) + k);
-   return gv * gl;
+// Smith Λ for GGX (α² as input; α = roughness²).
+float smithLambdaGGX(float NdotW, float a2) {
+   float c = max(NdotW, 1e-5);
+   float c2 = c * c;
+   return 0.5 * (sqrt(1.0 + a2 * (1.0 - c2) / c2) - 1.0);
+}
+
+// Smith G1 for GGX.
+float smithG1GGX(float NdotW, float a2) {
+   return 1.0 / (1.0 + smithLambdaGGX(NdotW, a2));
+}
+
+// Height-correlated Smith G2 for GGX (Heitz 2014).
+float smithG2GGX(float NdotV, float NdotL, float a2) {
+   return 1.0 / (1.0 + smithLambdaGGX(NdotV, a2) + smithLambdaGGX(NdotL, a2));
+}
+
+// Karis 2014 fit for the split-sum environment BRDF integral. Returns
+// (A, B) such that single-scatter spec albedo = F0·A + B and total directional
+// albedo at F=1 is Ess = A + B. Used for multi-scatter compensation and for
+// energy-conserving diffuse coupling.
+vec2 envBRDFApprox(float NdotV, float roughness) {
+   const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+   const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+   vec4 r = roughness * c0 + c1;
+   float a004 = min(r.x * r.x, exp2(-9.28 * NdotV)) * r.x + r.y;
+   return vec2(-1.04, 1.04) * a004 + r.zw;
+}
+
+// Sample GGX visible normals (Heitz 2018, isotropic). Ve is the view vector
+// in tangent space (z = up). Returns the half-vector in tangent space.
+vec3 sampleGGXVNDFIsotropic(vec3 Ve, float a, float r1, float r2) {
+   vec3 Vh = normalize(vec3(a * Ve.x, a * Ve.y, Ve.z));
+   float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+   vec3 T1 = (lensq > 0.0) ? vec3(-Vh.y, Vh.x, 0.0) * inversesqrt(lensq) : vec3(1.0, 0.0, 0.0);
+   vec3 T2 = cross(Vh, T1);
+   float r = sqrt(r1);
+   float phi = 2.0 * PI * r2;
+   float t1 = r * cos(phi);
+   float t2 = r * sin(phi);
+   float s = 0.5 * (1.0 + Vh.z);
+   t2 = (1.0 - s) * sqrt(max(0.0, 1.0 - t1 * t1)) + s * t2;
+   vec3 Nh = t1 * T1 + t2 * T2 + sqrt(max(0.0, 1.0 - t1 * t1 - t2 * t2)) * Vh;
+   return normalize(vec3(a * Nh.x, a * Nh.y, max(1e-5, Nh.z)));
+}
+
+// World-space convenience: sample a half-vector from VNDF given world-space N,V.
+vec3 sampleGGXHalfWorld(vec3 N, vec3 V, float roughness) {
+   float a = max(roughness * roughness, 0.002);
+   vec3 up = abs(N.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+   vec3 T = normalize(cross(up, N));
+   vec3 B = cross(N, T);
+   vec3 Vt = vec3(dot(V, T), dot(V, B), dot(V, N));
+   vec3 Ht = sampleGGXVNDFIsotropic(Vt, a, rand(), rand());
+   return normalize(T * Ht.x + B * Ht.y + N * Ht.z);
+}
+
+// VNDF pdf in solid-angle measure for incoming direction L given V,N.
+//   pdf(L) = D(H) · G1(V) · max(VdotH,0) / NdotV / (4·VdotH)
+//          = D(H) · G1(V) / (4·NdotV)
+float pdfGGXVNDFL(vec3 N, vec3 V, vec3 L, float roughness) {
+   if (dot(N, L) <= 0.0 || dot(N, V) <= 0.0) return 0.0;
+   vec3 H = normalize(V + L);
+   float NdotH = max(dot(N, H), 0.0);
+   float NdotV = max(dot(N, V), 1e-5);
+   float a = max(roughness * roughness, 0.002);
+   float a2 = a * a;
+   return D_GGX(NdotH, roughness) * smithG1GGX(NdotV, a2) / (4.0 * NdotV);
 }
 
 vec3 diffuseHammon(vec3 albedo, float roughness, float NdotV, float NdotL, float LdotH) {
@@ -261,7 +354,29 @@ vec3 diffuseHammon(vec3 albedo, float roughness, float NdotV, float NdotL, float
    return albedo * (lightScatter * viewScatter * energyFactor) * (1.0 / PI);
 }
 
-vec3 evalBRDF(vec3 N, vec3 V, vec3 L, vec3 albedo, float roughness, float metallic, vec3 F0) {
+// Fdez-Agüera 2019 multi-scatter / diffuse coupling at NdotV.
+// Returns the single-scatter+multi-scatter total spec albedo (kS) for use as
+// "1 - kS" diffuse weight, and stores the multi-scatter scaling factor for the
+// single-scatter spec lobe (Turquin 2019, F0-tinted to match Adobe §1.2).
+void specEnergyTerms(vec3 F0, float NdotV, float roughness,
+   out vec3 kS, out vec3 specMSFactor) {
+   vec2 ab = envBRDFApprox(NdotV, roughness);
+   float Ess = max(ab.x + ab.y, 0.01);
+   float Ems = max(1.0 - Ess, 0.0);
+
+   // Turquin 2019 single-scatter compensation. Multiplying by F0 gives the
+   // F0² behaviour for the multi-scatter contribution from Adobe §1.2.
+   specMSFactor = vec3(1.0) + F0 * (Ems / Ess);
+
+   // Fdez-Agüera total spec albedo at NdotV (used for diffuse coupling and
+   // for Fresnel-weighted lobe-picking).
+   vec3 FssEss = F0 * ab.x + ab.y;
+   vec3 Favg = F0 + (vec3(1.0) - F0) * (1.0 / 21.0);
+   vec3 Fms = FssEss * Favg / max(vec3(1.0) - Favg * Ems, vec3(1e-5));
+   kS = clamp(FssEss + Fms * Ems, vec3(0.0), vec3(1.0));
+}
+
+vec3 evalBRDF(vec3 N, vec3 V, vec3 L, vec3 albedo, float roughness, float metallic, vec3 F0, vec3 F82tint) {
    float NdotL = max(dot(N, L), 0.0);
    float NdotV = max(dot(N, V), 0.0);
    if (NdotL <= 0.0 || NdotV <= 0.0) return vec3(0.0);
@@ -269,41 +384,29 @@ vec3 evalBRDF(vec3 N, vec3 V, vec3 L, vec3 albedo, float roughness, float metall
    vec3 H = normalize(V + L);
    float NdotH = max(dot(N, H), 0.0);
    float VdotH = max(dot(V, H), 0.0);
+   float LdotH = max(dot(L, H), 0.0);
 
-   vec3 F = fresnelSchlickVec(F0, VdotH);
-   float D = D_GGX(NdotH, roughness);
-   float G = G_Smith(NdotV, NdotL, roughness);
-   vec3 specTerm = (D * G) * F / max(4.0 * NdotV * NdotL, 1e-5);
-
-   vec3 diffuseColor = albedo * (1.0 - metallic);
-   vec3 diffTerm = diffuseHammon(diffuseColor, roughness, NdotV, NdotL, max(dot(L, H), 0.0)) * (vec3(1.0) - F);
-
-   return diffTerm + specTerm;
-}
-
-vec3 sampleGGX(vec3 N, float roughness) {
    float a = max(roughness * roughness, 0.002);
    float a2 = a * a;
 
-   float r1 = rand();
-   float r2 = rand();
-   float phi = 2.0 * PI * r1;
-   float cosTheta = sqrt((1.0 - r2) / (1.0 + (a2 - 1.0) * r2));
-   float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+   vec3 F = fresnelF82Tint(F0, F82tint, VdotH);
+   float D = D_GGX(NdotH, roughness);
+   float G2 = smithG2GGX(NdotV, NdotL, a2);
+   vec3 specSS = (D * G2) * F / max(4.0 * NdotV * NdotL, 1e-5);
 
-   vec3 up = abs(N.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-   vec3 tangent = normalize(cross(up, N));
-   vec3 bitangent = cross(N, tangent);
+   vec3 kS;
+   vec3 specMSFactor;
+   specEnergyTerms(F0, NdotV, roughness, kS, specMSFactor);
+   vec3 specTerm = specSS * specMSFactor;
 
-   return normalize(tangent * (cos(phi) * sinTheta) + bitangent * (sin(phi) * sinTheta) + N * cosTheta);
-}
+   // Energy-conserving diffuse: the energy that did not leave through the spec
+   // lobe (1 - kS) is available for diffuse. This is the practical Karis-Ess
+   // approximation of the Ashikhmin-Premoze-Shirley separable diffuse term;
+   // the full reciprocal form would require precomputed L(ωi) and T tables.
+   vec3 diffuseColor = albedo * (1.0 - metallic);
+   vec3 diffTerm = diffuseHammon(diffuseColor, roughness, NdotV, NdotL, LdotH) * (vec3(1.0) - kS);
 
-vec3 getSkyColor(vec3 rd, vec3 lightDir) {
-   float sun = max(dot(rd, lightDir), 0.0);
-   float sky = max(rd.y * 0.5 + 0.5, 0.0);
-   vec3 skyColor = mix(vec3(0.5, 0.6, 0.8), vec3(0.2, 0.4, 0.9), sky) * SKY_BRIGHTNESS;
-   skyColor += vec3(1.0, 0.95, 0.8) * pow(sun, 256.0) * SUN_BRIGHTNESS;
-   return skyColor;
+   return diffTerm + specTerm;
 }
 
 void main() {
@@ -319,6 +422,7 @@ void main() {
 
    mat4 projInv = control.sceneFrozen == 1u ? control.frozenProjInv : gbufferProjectionInverse;
    mat4 mvInv = control.sceneFrozen == 1u ? control.frozenModelViewInv : gbufferModelViewInverse;
+   // shadowLightPosition: sun by day, moon by night (Iris auto-swaps).
    vec3 lightPos = control.sceneFrozen == 1u ? control.frozenLightPos.xyz : shadowLightPosition;
 
    vec4 clipDir = vec4(ndc, 1.0, 1.0);
@@ -339,7 +443,7 @@ void main() {
          vec3 centerRo = mvInv[3].xyz;
 
          TraceResult centerHit = traceBVH(centerRo, centerRd, true);
-         float newDist = centerHit.hit ? centerHit.t : 100.0;
+         float newDist = centerHit.hit ? centerHit.t : far;
 
          control.autofocusDist = newDist;
       }
@@ -405,12 +509,29 @@ void main() {
    }
    #endif
 
-   vec3 lightDir = normalize((mvInv * vec4(0.01 * lightPos, 0.0)).xyz);
+   // World-space direction toward the active shadow light (frozen-aware).
+   vec3 lightDir = normalize((mvInv * vec4(lightPos, 0.0)).xyz);
+
+   // Detect day/night from the world-space sun altitude (camera-orientation
+   // independent). shadowLightPosition switches at the horizon, so the NEE
+   // tint and intensity must follow it. The skyView LUT lookup is also keyed
+   // off this sun direction, so we read the frozen value when frozen to keep
+   // the lookup axis stable during accumulation.
+   vec3 sunPosForFrame = control.sceneFrozen == 1u ? control.frozenSunPos.xyz : sunPosition;
+   vec3 worldSunDir = normalize((mvInv * vec4(sunPosForFrame, 0.0)).xyz);
+   bool isDay = worldSunDir.y >= 0.0;
+   vec3 lightIlluminance = isDay ? SUN_ILLUMINANCE : MOON_ILLUMINANCE;
+   vec3 lightTint = isDay ? vec3(1.0, 0.95, 0.8) : vec3(0.7, 0.85, 1.0);
 
    TraceResult primaryHit = traceBVH(ro, rd, true);
 
    if (!primaryHit.hit) {
-      vec3 sky = getSkyColor(rd, lightDir);
+      // The skyView LUT is azimuthally parameterized around the sun
+      // (its local frame is built from sun_direction in the LUT generator),
+      // so we must sample it with the sun direction even when the active
+      // shadow light is the moon at night. Otherwise the lookup azimuth axis
+      // mismatches the LUT layout and we get harsh banding at sunset.
+      vec3 sky = sampleSky(rd, worldSunDir);
 
       vec4 prev = texture(colortex5, rawUV);
       float frameCount = prev.a;
@@ -467,7 +588,7 @@ void main() {
       }
 
       if (!bounceHit.hit) {
-         radiance += throughput * getSkyColor(bounceDir, lightDir);
+         radiance += throughput * sampleSky(bounceDir, worldSunDir);
          break;
       }
 
@@ -487,20 +608,21 @@ void main() {
       float roughness;
       float metallic;
       vec3 F0;
+      vec3 F82tint;
       float emissionMap;
       float ao;
       float sssAmount;
       vec3 c_hitPos = origin + bounceDir * bounceHit.t;
-      decodeLabPBR(c_hitPos, bounceHit.uv, bounceHit.normal, bounceHit.quadID, bounceHit.triIndex, bounceHit.textureID, bounceAlbedo, shadeNormal, roughness, metallic, F0, emissionMap, ao, sssAmount);
-
-      // radiance = vec3(sssAmount);
-      // break;
+      decodeLabPBR(c_hitPos, bounceHit.uv, bounceHit.normal, bounceHit.quadID, bounceHit.triIndex, bounceHit.textureID, bounceAlbedo, shadeNormal, roughness, metallic, F0, F82tint, emissionMap, ao, sssAmount);
 
       vec3 diffuseAlbedo = bounceAlbedo * ao;
       vec3 hitPoint = origin + bounceDir * bounceHit.t;
       vec3 N = shadeNormal;
       vec3 V = normalize(-bounceDir);
       vec3 surfaceThroughput = throughput;
+
+      float d = dot(N, V);
+      N = mix(N, bounceHit.normal, 1.0 - smoothstep(0.0, 0.05, d));
 
       if (bounceHit.translucent) {
          if (bounceHit.waterSurface) {
@@ -563,11 +685,13 @@ void main() {
             float opacity = glassTexColor.a;
             vec3 glassColor = pow(glassTexColor.rgb * glassTexColor.rgb * bounceHit.vertexData.rgb, vec3(2.2));
 
-            int wl = int(rand() * 3.0); // 0=R, 1=G, 2=B
-            wl = min(wl, 2);
-            float channelIOR = GLASS_IOR_RGB[wl];
-            vec3 channelMask = vec3(0.0);
-            channelMask[wl] = 3.0; // weight by 3 to compensate 1/3 selection probability
+            int wl = int(rand() * float(GLASS_BIN_COUNT));
+            wl = min(wl, GLASS_BIN_COUNT - 1);
+            vec3 B, C;
+            glassCoeffs_N_BK7(B, C);
+            float channelIOR = sellmeierIOR(GLASS_WL_BIN[wl], B, C);
+            // mask is column-normalised so Σmask = (1,1,1); ×N undoes 1/N selection prob.
+            vec3 channelMask = GLASS_MASK_BIN[wl] * float(GLASS_BIN_COUNT);
 
             float eta = insideMedium ? (channelIOR / 1.0) : (1.0 / channelIOR);
             float cosI = abs(dot(bounceDir, N));
@@ -626,92 +750,151 @@ void main() {
       }
 
       #ifdef MC_TEXTURE_FORMAT_LAB_PBR_1_3
-      float emission = emissionMap * 3.0;
+      float emission = emissionMap * 20.0;
       #else
-      float emission = pow(length(bounceAlbedo * 1.5), 2.2) * bounceHit.vertexData.a;
+      float emission = pow(length(bounceAlbedo * 1.5), 2.2) * bounceHit.vertexData.a * 0.2;
       #endif
       if (emission > 0.0) {
-         radiance += throughput * bounceAlbedo * emission * 2.0;
+         radiance += throughput * bounceAlbedo * emission;
       }
 
       vec3 shadowOrigin = hitPoint + N * shadowBias;
+      vec3 N_geom = bounceHit.normal;
       float NdotL_direct = dot(N, lightDir);
       bool frontLit = NdotL_direct > 0.0;
       bool backLit = sssAmount > 0.0 && NdotL_direct < 0.0;
+
+      // Lobe-pick probability and multi-scatter compensation factor at NdotV.
+      float NdotV = max(dot(N, V), 1e-5);
+      vec3 kS;
+      vec3 specMSFactor;
+      specEnergyTerms(F0, NdotV, roughness, kS, specMSFactor);
+      float specularProb = clamp(max(max(kS.r, kS.g), kS.b), 0.05, 0.95);
+
+      // Effective sun-cap solid angle used for both NEE and BRDF→sun MIS.
+      // SSS surfaces widen the cap for softer shadows; the same cap is reused
+      // on the BRDF side so MIS stays consistent.
+      #ifdef MC_TEXTURE_FORMAT_LAB_PBR_1_3
+      float sunHalfAngle = 0.007 + sssAmount * 0.01;
+      #else
+      float sunHalfAngle = 0.007 + sssAmount * 0.1;
+      #endif
+      float sunCosThreshold = cos(sunHalfAngle);
+      float sunSolidAngle = max(2.0 * PI * (1.0 - sunCosThreshold), 1e-8);
+      float pdfNEE_sun = 1.0 / sunSolidAngle;
+      vec3 sunRadiance = lightIlluminance / sunSolidAngle;
+
+      // ---- Next-event estimation toward the sun (with balance-heuristic MIS) ----
       if (frontLit || backLit) {
          vec3 up = abs(lightDir.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
          vec3 tangent = normalize(cross(up, lightDir));
          vec3 bitangent = cross(lightDir, tangent);
 
-         #ifdef MC_TEXTURE_FORMAT_LAB_PBR_1_3
-         float r = sqrt(rand()) * (0.007 + (sssAmount * 0.01));
-         #else
-         float r = sqrt(rand()) * (0.007 + (sssAmount * 0.1));
-         #endif
+         float r = sqrt(rand()) * sunHalfAngle;
          float theta = rand() * 2.0 * PI;
          vec3 sampleDir = normalize(lightDir + (tangent * cos(theta) + bitangent * sin(theta)) * r);
          float sNdotL = dot(N, sampleDir);
+         bool ngVisible = dot(N_geom, sampleDir) > 0.0;
 
-         if (frontLit && sNdotL > 0.0) {
+         if (frontLit && sNdotL > 0.0 && ngVisible) {
             vec3 shadowTint = traceShadowTinted(shadowOrigin, sampleDir, SHADOW_MAX_DIST);
             if (shadowTint != vec3(0.0)) {
-               vec3 brdf = evalBRDF(N, V, sampleDir, diffuseAlbedo, roughness, metallic, F0);
-               radiance += surfaceThroughput * brdf * sNdotL * SUN_BRIGHTNESS * vec3(1.0, 0.95, 0.8) * shadowTint;
+               vec3 brdf = evalBRDF(N, V, sampleDir, diffuseAlbedo, roughness, metallic, F0, F82tint);
+               // Marginal BRDF pdf at the NEE direction (for balance heuristic).
+               float pdfBRDF_at = specularProb * pdfGGXVNDFL(N, V, sampleDir, roughness)
+                     + (1.0 - specularProb) * sNdotL / PI;
+               float wNEE = pdfNEE_sun / (pdfNEE_sun + pdfBRDF_at);
+               radiance += wNEE * surfaceThroughput * brdf * sNdotL
+                     * lightIlluminance * lightTint * shadowTint
+                     * atmosphereTransmittance(sampleDir);
             }
          }
 
          if (backLit) {
+            // SSS soft-shadow term — kept outside MIS since the BRDF spec/diffuse
+            // sampling never reaches the back hemisphere for the same surface.
             vec3 sssOrigin = hitPoint - N * shadowBias;
             vec3 shadowTint = traceShadowTinted(sssOrigin, sampleDir, SHADOW_MAX_DIST);
             if (shadowTint != vec3(0.0)) {
                float wrap = max(-sNdotL, 0.0);
                vec3 sssColor = diffuseAlbedo * (1.0 - metallic);
-               radiance += surfaceThroughput * sssColor * (sssAmount * wrap * (1.0 / PI)) * SUN_BRIGHTNESS * vec3(1.0, 0.95, 0.8) * shadowTint;
+               radiance += surfaceThroughput * sssColor * (sssAmount * wrap * (1.0 / PI))
+                     * lightIlluminance * lightTint * shadowTint
+                     * atmosphereTransmittance(sampleDir);
             }
          }
       }
 
-      float specularProb = clamp(max(max(F0.r, F0.g), F0.b), 0.05, 0.95);
+      // ---- BRDF lobe sampling (VNDF spec + cosine diffuse) ----
+      vec3 L_sample;
+      float NdotL_sample;
+      float pdfBRDF_marginal;
+      bool sampleValid;
+
       if (rand() < specularProb) {
-         vec3 H = sampleGGX(N, roughness);
-         vec3 L = reflect(-V, H);
+         vec3 H = sampleGGXHalfWorld(N, V, roughness);
+         L_sample = reflect(-V, H);
+         NdotL_sample = dot(N, L_sample);
 
-         float NdotL = max(dot(N, L), 0.0);
-         if (NdotL <= 0.0) break;
+         // Reject below shading horizon (rare with VNDF) or below geometric
+         // horizon (normal-mapped overhang); otherwise it produces dark fireflies.
+         sampleValid = NdotL_sample > 0.0 && dot(N_geom, L_sample) > 0.0;
+         if (!sampleValid) break;
 
-         float NdotV = max(dot(N, V), 0.0);
-         float NdotH = max(dot(N, H), 0.0);
-         float VdotH = max(dot(V, H), 0.0);
+         float VdotH = max(dot(V, H), 1e-5);
+         float a = max(roughness * roughness, 0.002);
+         float a2 = a * a;
 
-         vec3 F = fresnelSchlickVec(F0, VdotH);
-         float D = D_GGX(NdotH, roughness);
-         float G = G_Smith(NdotV, NdotL, roughness);
-         vec3 specBRDF = (D * G) * F / max(4.0 * NdotV * NdotL, 1e-5);
+         // VNDF-sampled spec BRDF/pdf simplifies to F · G2/G1(V).
+         vec3 F = fresnelF82Tint(F0, F82tint, VdotH);
+         float lambdaV = smithLambdaGGX(NdotV, a2);
+         float lambdaL = smithLambdaGGX(NdotL_sample, a2);
+         float G2_over_G1V = (1.0 + lambdaV) / max(1.0 + lambdaV + lambdaL, 1e-5);
+         vec3 specWeight = F * G2_over_G1V * specMSFactor;
 
-         float pdf = D * NdotH / max(4.0 * VdotH, 1e-5);
-         throughput *= specBRDF * NdotL / max(pdf * specularProb, 1e-5);
+         throughput *= specWeight / specularProb;
 
-         nextDir = L;
-         hasFixedDir = true;
+         pdfBRDF_marginal = specularProb * pdfGGXVNDFL(N, V, L_sample, roughness)
+               + (1.0 - specularProb) * max(NdotL_sample, 0.0) / PI;
       } else {
-         vec3 L = sampleCosineHemisphere(N);
+         L_sample = sampleCosineHemisphere(N);
+         NdotL_sample = max(dot(N, L_sample), 0.0);
 
-         float NdotL = max(dot(N, L), 0.0);
-         float NdotV = max(dot(N, V), 0.0);
+         sampleValid = NdotL_sample > 0.0 && dot(N_geom, L_sample) > 0.0;
+         if (!sampleValid) break;
 
-         vec3 H = normalize(V + L);
-         float VdotH = max(dot(V, H), 0.0);
+         vec3 H = normalize(V + L_sample);
+         float LdotH = max(dot(L_sample, H), 0.0);
 
-         vec3 F = fresnelSchlickVec(F0, VdotH);
          vec3 diffuseColor = diffuseAlbedo * (1.0 - metallic);
-         vec3 diffBRDF = diffuseHammon(diffuseColor, roughness, NdotV, NdotL, max(dot(L, H), 0.0)) * (vec3(1.0) - F);
+         vec3 diffBRDF = diffuseHammon(diffuseColor, roughness, NdotV, NdotL_sample, LdotH) * (vec3(1.0) - kS);
 
-         float pdf = NdotL * (1.0 / PI);
-         throughput *= diffBRDF * NdotL / max(pdf * (1.0 - specularProb), 1e-5);
+         float pdfDiff = NdotL_sample / PI;
+         throughput *= diffBRDF * NdotL_sample / max(pdfDiff * (1.0 - specularProb), 1e-5);
 
-         nextDir = L;
-         hasFixedDir = true;
+         pdfBRDF_marginal = specularProb * pdfGGXVNDFL(N, V, L_sample, roughness)
+               + (1.0 - specularProb) * pdfDiff;
       }
+
+      // ---- BRDF-side direct sun (MIS partner of NEE) ----
+      // Adds the direct-sun contribution from a BRDF lobe sample that happens
+      // to land on the sun cap. Without this, smooth metals never see the sun
+      // (NEE has near-zero BRDF value at the sun for a sharp lobe, and the
+      // sky LUT carries no sun disk). Balance-heuristic weighted against NEE.
+      if (frontLit && dot(L_sample, lightDir) >= sunCosThreshold) {
+         vec3 shadowTint = traceShadowTinted(shadowOrigin, L_sample, SHADOW_MAX_DIST);
+         if (shadowTint != vec3(0.0)) {
+            vec3 brdfAtSun = evalBRDF(N, V, L_sample, diffuseAlbedo, roughness, metallic, F0, F82tint);
+            float wBRDF = pdfBRDF_marginal / (pdfBRDF_marginal + pdfNEE_sun);
+            radiance += wBRDF * surfaceThroughput * brdfAtSun * NdotL_sample
+                  * sunRadiance * lightTint * shadowTint
+                  * atmosphereTransmittance(L_sample)
+                  / max(pdfBRDF_marginal, 1e-8);
+         }
+      }
+
+      nextDir = L_sample;
+      hasFixedDir = true;
 
       hitPos = hitPoint;
       hitNormal = N;

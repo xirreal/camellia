@@ -6,7 +6,7 @@
 //#define ENTITY_TEXTURES_DEBUG
 #define MODE 1 //[0 1 2 3]
 
-layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(rgba8) uniform writeonly image2D colorimg0;
 
@@ -17,6 +17,7 @@ uniform sampler2D agxLut;
 uniform float viewWidth;
 uniform float viewHeight;
 uniform int textureReloadCount;
+uniform int frameCounter;
 
 #include "/lib/storage.glsl"
 #include "/lib/hploc.glsl"
@@ -25,6 +26,23 @@ uniform int textureReloadCount;
 
 vec3 gradient(float t) {
    return mix(vec3(0.4, 1.0, 0.4), vec3(0.9, 0.2, 0.25), t);
+}
+
+float _ditherHash(vec3 p) {
+   p = fract(p * 0.1031);
+   p += dot(p, p.zyx + 31.32);
+   return fract((p.x + p.y) * p.z);
+}
+
+vec3 tpdfDither(ivec2 coord, int frame) {
+   vec3 c = vec3(coord, frame);
+   float r0 = _ditherHash(c + vec3(0.0, 0.0, 0.0));
+   float r1 = _ditherHash(c + vec3(0.0, 0.0, 1.0));
+   float r2 = _ditherHash(c + vec3(0.0, 1.0, 0.0));
+   float r3 = _ditherHash(c + vec3(0.0, 1.0, 1.0));
+   float r4 = _ditherHash(c + vec3(1.0, 0.0, 0.0));
+   float r5 = _ditherHash(c + vec3(1.0, 0.0, 1.0));
+   return vec3(r0 - r1, r2 - r3, r4 - r5) / 255.0;
 }
 
 void main() {
@@ -52,7 +70,7 @@ void main() {
    text.fgCol = vec4(gradient(fullness), 1.0);
    printUnsignedIntWithSeparators(numQuads);
    printString((_slash));
-   printUnsignedIntWithSeparators(MAX_QUAD_COUNT);
+   printUnsignedIntWithSeparators(uint(MAX_QUAD_COUNT));
    printLine();
 
    text.fgCol = vec4(1.0);
@@ -255,6 +273,8 @@ void main() {
    endText(color);
 
    #endif
+
+   color += tpdfDither(coord, frameCounter);
 
    imageStore(colorimg0, coord, vec4(color, 1.0));
 }

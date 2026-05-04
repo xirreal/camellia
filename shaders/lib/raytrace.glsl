@@ -103,12 +103,24 @@ bool intersectQuadGeom(uint quadID, vec3 ro, vec3 rd, inout float tHit, out vec2
 }
 
 // Local QuadData helpers — load once, read fields from local copy
-uint qdMaterialBits(QuadData qd) { return qd.encodedMaterial >> 24u; }
-uint qdBlockID(QuadData qd) { return qd.encodedMaterial & 0x00FFFFFFu; }
-float qdEmission(QuadData qd) { return float(qdMaterialBits(qd) & 0x0Fu); }
-bool qdAlphaTested(QuadData qd) { return (qdMaterialBits(qd) & 0x10u) != 0u; }
-bool qdTranslucent(QuadData qd) { return (qdMaterialBits(qd) & 0x20u) != 0u; }
-bool qdPlayerModel(QuadData qd) { return (qdMaterialBits(qd) & 0x40u) != 0u; }
+uint qdMaterialBits(QuadData qd) {
+   return qd.encodedMaterial >> 24u;
+}
+uint qdBlockID(QuadData qd) {
+   return qd.encodedMaterial & 0x00FFFFFFu;
+}
+float qdEmission(QuadData qd) {
+   return float(qdMaterialBits(qd) & 0x0Fu);
+}
+bool qdAlphaTested(QuadData qd) {
+   return (qdMaterialBits(qd) & 0x10u) != 0u;
+}
+bool qdTranslucent(QuadData qd) {
+   return (qdMaterialBits(qd) & 0x20u) != 0u;
+}
+bool qdPlayerModel(QuadData qd) {
+   return (qdMaterialBits(qd) & 0x40u) != 0u;
+}
 
 vec2 qdUV(QuadData qd, uint i) {
    uint p = (i == 0u) ? qd.uv0 :
@@ -266,8 +278,7 @@ TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer) {
       vec3 p3 = vec3(qp.p[9], qp.p[10], qp.p[11]);
 
       vec3 n = (hitTri == 0)
-         ? normalize(cross(p1 - p0, p2 - p0))
-         : normalize(cross(p2 - p0, p3 - p0));
+         ? normalize(cross(p1 - p0, p2 - p0)) : normalize(cross(p2 - p0, p3 - p0));
       if (dot(n, rd) > 0.0) n = -n;
       res.normal = n;
 

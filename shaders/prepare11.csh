@@ -1,9 +1,7 @@
 #version 460
 
-const ivec3 workGroups = ivec3(16, 1, 1);
-
 #define SORT_PASS 3
-#define SORT_PHASE 1
+#define SORT_PHASE 0
 
 #include "/lib/storage.glsl"
 #include "/lib/hploc.glsl"
@@ -12,5 +10,5 @@ const ivec3 workGroups = ivec3(16, 1, 1);
 layout(local_size_x = 256) in;
 
 void main() {
-   sortScan();
+   sortUpsweep();
 }
