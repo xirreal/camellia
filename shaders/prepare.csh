@@ -20,6 +20,10 @@ void main() {
    sceneMin = subgroupBroadcastFirst(sceneMin);
    sceneMax = subgroupBroadcastFirst(sceneMax);
 
+   if (gID < SORT_GLOBAL_HIST_SIZE) {
+      sortScratch[SORT_SCRATCH_GLOBAL_HIST + gID] = 0u;
+   }
+
    if (gID < numQuads) {
       QuadPositions qp = quadPositions[gID];
       vec3 p1 = vec3(qp.p[0], qp.p[1], qp.p[2]);
@@ -43,7 +47,7 @@ void main() {
    }
 
    if (gID == 0u) {
-      uint sortWorkgroups = (numQuads + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
+      uint sortWorkgroups = (numQuads + SORT_PART_SIZE - 1u) / SORT_PART_SIZE;
 
       control.sortDispatchX = sortWorkgroups;
       control.sortDispatchY = 1u;

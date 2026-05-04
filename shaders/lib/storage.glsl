@@ -64,16 +64,28 @@ struct QuadData {
 
 const uint INVALID_ID = 0xFFFFFFFFu;
 
-const uint RADIX_BITS = 4u;
+const uint RADIX_BITS = 8u;
 const uint RADIX = 1u << RADIX_BITS;
 const uint WAVE_SIZE = 32u;
 const uint SORT_WG_SIZE = 256u;
 const uint SORT_MAX_WORKGROUPS = (MAX_QUAD_COUNT + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
+const uint SORT_RADIX_MASK = RADIX - 1u;
+const uint HALF_RADIX = RADIX >> 1u;
+const uint SORT_HALF_RADIX_MASK = HALF_RADIX - 1u;
+const uint SORT_RADIX_PASSES = 32u / RADIX_BITS;
+const uint SORT_KEYS_PER_THREAD = 15u;
+const uint SORT_UPSWEEP_WG_SIZE = 128u;
+const uint SORT_SCAN_WG_SIZE = 128u;
+const uint SORT_DOWNSWEEP_WG_SIZE = 256u;
+const uint SORT_PART_SIZE = SORT_KEYS_PER_THREAD * SORT_DOWNSWEEP_WG_SIZE;
+const uint SORT_MAX_PARTITIONS = (MAX_QUAD_COUNT + SORT_PART_SIZE - 1u) / SORT_PART_SIZE;
+const uint SORT_DOWNSWEEP_SMEM = 4096u;
 
 const uint SORT_SCRATCH_KEYS = 0u;
 const uint SORT_SCRATCH_VALS = MAX_QUAD_COUNT;
 const uint SORT_SCRATCH_PASS_HIST = MAX_QUAD_COUNT * 2u;
-const uint SORT_SCRATCH_DIGIT_TOTALS = SORT_SCRATCH_PASS_HIST + RADIX * SORT_MAX_WORKGROUPS;
+const uint SORT_SCRATCH_GLOBAL_HIST = SORT_SCRATCH_PASS_HIST + RADIX * SORT_MAX_PARTITIONS;
+const uint SORT_GLOBAL_HIST_SIZE = SORT_RADIX_PASSES * RADIX;
 
 layout(std430, binding = 1) restrict buffer ControlBuffer {
    uint sortDispatchX; // 0

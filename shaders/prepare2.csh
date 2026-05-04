@@ -7,7 +7,7 @@
 #include "/lib/hploc.glsl"
 #include "/lib/sort.glsl"
 
-layout(local_size_x = 256) in;
+layout(local_size_x = 128) in;
 
 void main() {
    sortUpsweep();
