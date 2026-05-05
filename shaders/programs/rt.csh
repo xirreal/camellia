@@ -13,7 +13,7 @@ uniform sampler2D blockAtlas;
 uniform sampler2D normalAtlas;
 uniform sampler2D specularAtlas;
 uniform int isEyeInWater;
-uniform vec3 cameraPosition;
+uniform vec3 sunPosition;
 
 uniform int randomSeed;
 uniform float frameTimeCounter;
@@ -25,12 +25,11 @@ uniform float near;
 #include "/lib/encoding.glsl"
 #include "/lib/noise.glsl"
 #include "/lib/raytrace.glsl"
+#include "/lib/atmosphere.glsl"
 
-const float CLOSE_SHADOW_BIAS = 0.000001;
-const float FAR_SHADOW_BIAS = 0.0001;
+const float CLOSE_SHADOW_BIAS = 0.001;
+const float FAR_SHADOW_BIAS = 0.1;
 const float SHADOW_MAX_DIST = 256.0;
-const float SKY_BRIGHTNESS = 1.0;
-const float SUN_BRIGHTNESS = 2.5;
 
 uint rngState;
 
@@ -59,14 +58,6 @@ float rand() {
    return float(pcgHash()) / 4294967295.0;
 }
 
-vec3 getSkyColor(vec3 rd, vec3 lightDir) {
-   float sun = max(dot(rd, lightDir), 0.0);
-   float sky = max(rd.y * 0.5 + 0.5, 0.0);
-   vec3 skyColor = mix(vec3(0.5, 0.6, 0.8), vec3(0.2, 0.4, 0.9), sky) * SKY_BRIGHTNESS;
-   skyColor += vec3(1.0, 0.95, 0.8) * pow(sun, 256.0) * SUN_BRIGHTNESS;
-   return skyColor;
-}
-
 void main() {
    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
    if (coord.x >= int(viewWidth) || coord.y >= int(viewHeight)) return;
@@ -77,17 +68,26 @@ void main() {
    vec2 ndc = uv * 2.0 - 1.0;
 
    vec4 clipDir = vec4(ndc, 1.0, 1.0);
-   vec4 viewDir = gbufferProjectionInverse * clipDir;
-   viewDir.xyz /= viewDir.w;
-   vec3 rd = normalize((mat3(gbufferModelViewInverse) * viewDir.xyz));
-   vec3 ro = gbufferModelViewInverse[3].xyz;
+   mat4 projInv = control.sceneFrozen == 1u ? control.frozenProjInv : gbufferProjectionInverse;
+   mat4 mvInv = control.sceneFrozen == 1u ? control.frozenModelViewInv : gbufferModelViewInverse;
+   vec3 lightPos = control.sceneFrozen == 1u ? control.frozenLightPos.xyz : shadowLightPosition;
+   vec3 sunPosForFrame = control.sceneFrozen == 1u ? control.frozenSunPos.xyz : sunPosition;
 
-   vec3 lightDir = normalize((gbufferModelViewInverse * vec4(0.01 * shadowLightPosition, 0.0)).xyz);
+   vec4 viewDir = projInv * clipDir;
+   viewDir.xyz /= viewDir.w;
+   vec3 rd = normalize((mat3(mvInv) * viewDir.xyz));
+   vec3 ro = mvInv[3].xyz;
+
+   vec3 lightDir = normalize((mvInv * vec4(0.01 * lightPos, 0.0)).xyz);
+   vec3 sunDir = normalize((mvInv * vec4(0.01 * sunPosForFrame, 0.0)).xyz);
+   bool isDay = sunDir.y >= 0.0;
+   vec3 lightIlluminance = isDay ? SUN_ILLUMINANCE : MOON_ILLUMINANCE;
+   vec3 lightTint = isDay ? vec3(1.0, 0.95, 0.8) : vec3(0.7, 0.85, 1.0);
 
    TraceResult hit = traceBVH(ro, rd, true);
 
    if (!hit.hit) {
-      vec3 sky = getSkyColor(rd, lightDir);
+      vec3 sky = sampleSky(rd, sunDir);
       imageStore(colorimg5, coord, vec4(sky, 1.0));
       return;
    }
@@ -143,9 +143,9 @@ void main() {
       shadow = shadowAccum / weightAccum;
    }
 
-   vec3 sunLight = NdotL * shadow * SUN_BRIGHTNESS * vec3(1.0, 1.0, 1.0);
-   vec3 ambient = mix(getSkyColor(hit.normal, lightDir), vec3(1.0), 0.25) * 0.35;
-   vec3 lighting = sunLight + ambient;
+   vec3 directLight = NdotL * shadow * lightIlluminance * lightTint;
+   vec3 ambient = sampleSky(abs(hit.normal.y) >= 0.99 ? sunDir : hit.normal, sunDir) * 0.8;
+   vec3 lighting = directLight + ambient;
 
    float emission = hit.vertexData.a;
    if (emission > 0.0) {
@@ -153,5 +153,5 @@ void main() {
       lighting += albedo * emitter * emission * 2.0;
    }
 
-   imageStore(colorimg5, coord, vec4(albedo * lighting, 1.0));
+   imageStore(colorimg5, coord, vec4(albedo * lighting * 0.3, 1.0));
 }

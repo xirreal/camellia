@@ -482,7 +482,7 @@ SortOffsetStruct sortRankKeysWLT16(uint localID, SortKeyStruct keys, uint serial
       sortWarpLevelMultiSplitWLT16(keys.k[i], waveFlags);
 
       uint index = sortExtractPackedIndex(keys.k[i]) +
-         (waveIndex / serialIterations * HALF_RADIX);
+            (waveIndex / serialIterations * HALF_RADIX);
 
       uint peerBits = sortCountPeerBitsWLT16(waveFlags, ltMask);
       for (uint k = 0u; k < serialIterations; k++) {
@@ -730,8 +730,8 @@ void sortLoadThreadBlockReductions(uint localID, uint groupID, uint exclusiveHis
    if (localID < RADIX) {
       sortDownShared[localID + SORT_PART_SIZE] =
          sortScratch[sortGlobalHistBase() + localID] +
-         sortScratch[SORT_SCRATCH_PASS_HIST + localID * threadBlocks + groupID] -
-         exclusiveHistReduction;
+            sortScratch[SORT_SCRATCH_PASS_HIST + localID * threadBlocks + groupID] -
+            exclusiveHistReduction;
    }
 }
 

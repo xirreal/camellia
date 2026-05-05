@@ -37,10 +37,8 @@ void main() {
    if (gID >= numQuads) return;
 
    QuadPositions qp = quadPositions[gID];
-   vec3 p0 = vec3(qp.p[0], qp.p[1], qp.p[2]);
-   vec3 p1 = vec3(qp.p[3], qp.p[4], qp.p[5]);
-   vec3 p2 = vec3(qp.p[6], qp.p[7], qp.p[8]);
-   vec3 p3 = vec3(qp.p[9], qp.p[10], qp.p[11]);
+   vec3 p0, p1, p2, p3;
+   unpackQuadPositions(qp, p0, p1, p2, p3);
 
    // vertex nan/inf checks
    if (hasNanInf(p0) || hasNanInf(p1) || hasNanInf(p2) || hasNanInf(p3)) {

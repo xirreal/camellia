@@ -3,6 +3,7 @@ const sizes = [1048576, 2097152, 4194304, 8388608, 16777216, 33554432];
 for (const N of sizes) {
    const buffers = {
       "bufferObject.0": 4 + 32 * N,
+      "bufferObject.2": 24 * N,
       "bufferObject.3": 4 * N,
       "bufferObject.4": 4 * N,
       "bufferObject.5": 4 * N,

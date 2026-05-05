@@ -85,7 +85,7 @@ void main() {
       control.sortErrors = 0u;
       control.pairErrors = 0u;
 
-      control.prepareDispatchX = SORT_MAX_WORKGROUPS;
+      control.prepareDispatchX = 0u;
       control.prepareDispatchY = 1u;
       control.prepareDispatchZ = 1u;
 

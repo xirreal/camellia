@@ -73,10 +73,7 @@ bool intersectTri(vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, out float t, out 
 
 void decodeQuadPositions(uint quadID, out vec3 p0, out vec3 p1, out vec3 p2, out vec3 p3) {
    QuadPositions qp = quadPositions[quadID];
-   p0 = vec3(qp.p[0], qp.p[1], qp.p[2]);
-   p1 = vec3(qp.p[3], qp.p[4], qp.p[5]);
-   p2 = vec3(qp.p[6], qp.p[7], qp.p[8]);
-   p3 = vec3(qp.p[9], qp.p[10], qp.p[11]);
+   unpackQuadPositions(qp, p0, p1, p2, p3);
 }
 
 bool intersectQuadGeom(uint quadID, vec3 ro, vec3 rd, inout float tHit, out vec2 hitBary, out int hitTri) {
@@ -272,10 +269,8 @@ TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer) {
       QuadData qd = quadData[hitQuad];
       QuadPositions qp = quadPositions[hitQuad];
 
-      vec3 p0 = vec3(qp.p[0], qp.p[1], qp.p[2]);
-      vec3 p1 = vec3(qp.p[3], qp.p[4], qp.p[5]);
-      vec3 p2 = vec3(qp.p[6], qp.p[7], qp.p[8]);
-      vec3 p3 = vec3(qp.p[9], qp.p[10], qp.p[11]);
+      vec3 p0, p1, p2, p3;
+      unpackQuadPositions(qp, p0, p1, p2, p3);
 
       vec3 n = (hitTri == 0)
          ? normalize(cross(p1 - p0, p2 - p0)) : normalize(cross(p2 - p0, p3 - p0));

@@ -32,26 +32,24 @@ struct BVH2Node {
    float _pad1;
 }; // 64 bytes
 
-struct AABB {
-   vec3 minBounds;
-   float _pad0;
-   vec3 maxBounds;
-   float _pad1;
-}; // 32 bytes
-
 struct QuadPositions {
-   float p[12]; // p0.xyz, p1.xyz, p2.xyz, p3.xyz
+   vec4 p0p1x;    // p0.xyz, p1.x
+   vec4 p1yzp2xy; // p1.yz, p2.xy
+   vec4 p2zp3;    // p2.z, p3.xyz
 }; // 48 bytes
 
-layout(std430, binding = 2) restrict buffer AABBBuffer {
-   AABB aabbs[];
-};
+void unpackQuadPositions(QuadPositions qp, out vec3 p0, out vec3 p1, out vec3 p2, out vec3 p3) {
+   p0 = qp.p0p1x.xyz;
+   p1 = vec3(qp.p0p1x.w, qp.p1yzp2xy.xy);
+   p2 = vec3(qp.p1yzp2xy.zw, qp.p2zp3.x);
+   p3 = qp.p2zp3.yzw;
+}
 
-layout(std430, binding = 3) restrict coherent buffer MortonCodeBuffer {
+layout(std430, binding = 3) restrict buffer MortonCodeBuffer {
    uint mortonCodes[];
 };
 
-layout(std430, binding = 4) restrict buffer ClusterIndexBuffer {
+layout(std430, binding = 4) restrict coherent buffer ClusterIndexBuffer {
    uint clusterIndices[];
 };
 
@@ -96,8 +94,9 @@ bool loadClusterAABB(uint clusterID, out vec3 bMin, out vec3 bMax) {
       bMax = max(node.c0Max, node.c1Max);
       return true;
    } else {
-      bMin = aabbs[primID].minBounds;
-      bMax = aabbs[primID].maxBounds;
+      AABB leaf = aabbs[primID];
+      bMin = aabbMin(leaf);
+      bMax = aabbMax(leaf);
       return true;
    }
 }

@@ -5,20 +5,24 @@
 
 layout(local_size_x = 256) in;
 
+shared uint sharedNumQuads;
+shared vec3 sharedSceneMin;
+shared vec3 sharedInvSceneRange;
+
 void main() {
    uint gID = gl_GlobalInvocationID.x;
 
-   uint numQuads = 0;
-   vec3 sceneMin;
-   vec3 sceneMax;
-   if (subgroupElect()) {
-      numQuads = min(quadCount, uint(MAX_QUAD_COUNT));
-      sceneMax = getSceneMax();
-      sceneMin = getSceneMin();
+   if (gl_LocalInvocationID.x == 0u) {
+      sharedNumQuads = min(quadCount, uint(MAX_QUAD_COUNT));
+      sharedSceneMin = getSceneMin();
+      vec3 sceneMax = getSceneMax();
+      sharedInvSceneRange = 1.0 / max(sceneMax - sharedSceneMin, vec3(1e-9));
    }
-   numQuads = subgroupBroadcastFirst(numQuads);
-   sceneMin = subgroupBroadcastFirst(sceneMin);
-   sceneMax = subgroupBroadcastFirst(sceneMax);
+   barrier();
+
+   uint numQuads = sharedNumQuads;
+   vec3 sceneMin = sharedSceneMin;
+   vec3 invSceneRange = sharedInvSceneRange;
 
    if (gID < SORT_GLOBAL_HIST_SIZE) {
       sortScratch[SORT_SCRATCH_GLOBAL_HIST + gID] = 0u;
@@ -26,24 +30,19 @@ void main() {
 
    if (gID < numQuads) {
       QuadPositions qp = quadPositions[gID];
-      vec3 p1 = vec3(qp.p[0], qp.p[1], qp.p[2]);
-      vec3 p2 = vec3(qp.p[3], qp.p[4], qp.p[5]);
-      vec3 p3 = vec3(qp.p[6], qp.p[7], qp.p[8]);
-      vec3 p4 = vec3(qp.p[9], qp.p[10], qp.p[11]);
+      vec3 p1, p2, p3, p4;
+      unpackQuadPositions(qp, p1, p2, p3, p4);
 
       vec3 quadMin = min(min(p1, p2), min(p3, p4));
       vec3 quadMax = max(max(p1, p2), max(p3, p4));
       vec3 quadCenter = (p1 + p2 + p3 + p4) * 0.25;
 
-      vec3 range = max(sceneMax - sceneMin, vec3(1e-9));
-
-      vec3 normCentroid = (quadCenter - sceneMin) / range;
+      vec3 normCentroid = (quadCenter - sceneMin) * invSceneRange;
       uint morton = encodeMorton3D(normCentroid);
 
-      aabbs[gID] = AABB(quadMin, 0.0, quadMax, 0.0);
+      aabbs[gID] = makeAABB(quadMin, quadMax);
       mortonCodes[gID] = morton;
       clusterIndices[gID] = makeLeafID(gID);
-      parentIDs[gID] = INVALID_ID;
    }
 
    if (gID == 0u) {

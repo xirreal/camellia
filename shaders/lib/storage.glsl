@@ -60,6 +60,27 @@ struct QuadData {
    uint uv3; // packHalf2x16(v3.uv)
 }; // 32 bytes
 
+struct AABB {
+   float minX;
+   float minY;
+   float minZ;
+   float maxX;
+   float maxY;
+   float maxZ;
+}; // 24 bytes
+
+AABB makeAABB(vec3 bMin, vec3 bMax) {
+   return AABB(bMin.x, bMin.y, bMin.z, bMax.x, bMax.y, bMax.z);
+}
+
+vec3 aabbMin(AABB aabb) {
+   return vec3(aabb.minX, aabb.minY, aabb.minZ);
+}
+
+vec3 aabbMax(AABB aabb) {
+   return vec3(aabb.maxX, aabb.maxY, aabb.maxZ);
+}
+
 #define MAX_QUAD_COUNT 8388608 //[1048576 2097152 4194304 8388608 16777216 33554432]
 
 const uint INVALID_ID = 0xFFFFFFFFu;
@@ -86,6 +107,12 @@ const uint SORT_SCRATCH_VALS = MAX_QUAD_COUNT;
 const uint SORT_SCRATCH_PASS_HIST = MAX_QUAD_COUNT * 2u;
 const uint SORT_SCRATCH_GLOBAL_HIST = SORT_SCRATCH_PASS_HIST + RADIX * SORT_MAX_PARTITIONS;
 const uint SORT_GLOBAL_HIST_SIZE = SORT_RADIX_PASSES * RADIX;
+const uint SORT_GLOBAL_HIST_WORKGROUPS = (SORT_GLOBAL_HIST_SIZE + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
+
+uint sortPrepareWorkgroupsForQuadEnd(uint quadEnd) {
+   uint quadWorkgroups = (quadEnd + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
+   return max(quadWorkgroups, SORT_GLOBAL_HIST_WORKGROUPS);
+}
 
 layout(std430, binding = 1) restrict buffer ControlBuffer {
    uint sortDispatchX; // 0
@@ -131,6 +158,10 @@ layout(std430, binding = 1) restrict buffer ControlBuffer {
    vec4 frozenSunPos;
 } control;
 
+layout(std430, binding = 2) restrict buffer AABBBuffer {
+   AABB aabbs[];
+};
+
 const uint MAX_TEXTURES = 65536u;
 const uint MAX_TEXTURE_DATA = 268435456u; // 1GiB of total data
 
@@ -160,6 +191,11 @@ void getQuadWriteSlot(out uint quadID, out uint slot) {
    uint baseQuad = INVALID_ID;
    if (subgroupElect()) {
       baseQuad = atomicAdd(quadCount, quadAlloc);
+      if (baseQuad < uint(MAX_QUAD_COUNT)) {
+         uint quadEnd = min(baseQuad + quadAlloc, uint(MAX_QUAD_COUNT));
+         uint prepareWGs = sortPrepareWorkgroupsForQuadEnd(quadEnd);
+         atomicMax(control.prepareDispatchX, prepareWGs);
+      }
    }
    baseQuad = subgroupBroadcastFirst(baseQuad);
 

@@ -33,6 +33,11 @@ void main() {
    uint baseQuad = INVALID_ID;
    if (subgroupElect()) {
       baseQuad = atomicAdd(quadCount, ballotCount);
+      if (baseQuad < uint(MAX_QUAD_COUNT)) {
+         uint quadEnd = min(baseQuad + ballotCount, uint(MAX_QUAD_COUNT));
+         uint prepareWGs = sortPrepareWorkgroupsForQuadEnd(quadEnd);
+         atomicMax(control.prepareDispatchX, prepareWGs);
+      }
    }
    baseQuad = subgroupBroadcastFirst(baseQuad);
 
