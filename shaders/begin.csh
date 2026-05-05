@@ -13,7 +13,11 @@ uniform int frameCounter;
 
 #define QUAD_WRITE
 #include "/lib/storage.glsl"
-#include "/lib/textures.glsl"
+#include "/lib/buffers/control.glsl"
+#define QUAD_DATA_BUFFER_QUALIFIERS restrict writeonly
+#include "/lib/buffers/quad-data.glsl"
+#define TEXTURE_INFOS_BUFFER_QUALIFIERS restrict writeonly
+#include "/lib/buffers/texture-infos.glsl"
 
 const ivec3 workGroups = ivec3(256, 1, 1);
 

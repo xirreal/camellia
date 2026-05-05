@@ -11,7 +11,8 @@ uniform int gtextureId = 0;
 
 #define QUAD_WRITE
 #include "/lib/storage.glsl"
-#include "/lib/textures.glsl"
+#include "/lib/quad-write.glsl"
+#include "/lib/textures-write.glsl"
 
 #ifdef MC_GL_VENDOR_NVIDIA
 out gl_PerVertex {

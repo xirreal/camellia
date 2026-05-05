@@ -20,6 +20,12 @@ uniform int textureReloadCount;
 uniform int frameCounter;
 
 #include "/lib/storage.glsl"
+#define CONTROL_BUFFER_QUALIFIERS restrict readonly
+#include "/lib/buffers/control.glsl"
+#include "/lib/scene-read.glsl"
+#include "/lib/buffers/quad-data.glsl"
+#include "/lib/buffers/morton.glsl"
+#include "/lib/buffers/texture-infos.glsl"
 #include "/lib/hploc.glsl"
 #include "/lib/text-rendering.glsl"
 #include "/lib/agx.glsl"

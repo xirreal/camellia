@@ -2,7 +2,9 @@
 
 #define QUAD_WRITE
 #include "/lib/storage.glsl"
-#include "/lib/textures.glsl"
+#include "/lib/buffers/control.glsl"
+#define TEXTURE_INFOS_BUFFER_QUALIFIERS restrict writeonly
+#include "/lib/buffers/texture-infos.glsl"
 
 uniform int textureReloadCount;
 

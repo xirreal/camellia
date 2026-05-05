@@ -9,6 +9,9 @@ const ivec3 workGroups = ivec3(1, 1, 1);
 #endif
 
 #include "/lib/storage.glsl"
+#include "/lib/buffers/control.glsl"
+#include "/lib/buffers/quad-data.glsl"
+#include "/lib/buffers/quad-pos-read.glsl"
 #include "/lib/hploc.glsl"
 
 layout(local_size_x = 64) in;

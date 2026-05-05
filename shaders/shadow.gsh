@@ -5,6 +5,7 @@ layout(points, max_vertices = 0) out;
 
 #define QUAD_WRITE
 #include "/lib/storage.glsl"
+#include "/lib/quad-write.glsl"
 
 flat in vec3 vPlayerPos[];
 flat in vec2 vCoord[];

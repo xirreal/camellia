@@ -9,7 +9,12 @@
 */
 
 #include "/lib/storage.glsl"
-#include "/lib/hploc.glsl"
+#include "/lib/buffers/control.glsl"
+#include "/lib/buffers/cluster-index.glsl"
+#include "/lib/buffers/parent-id.glsl"
+#define BVH2_NODE_BUFFER_QUALIFIERS restrict
+#include "/lib/buffers/bvh2-node.glsl"
+#include "/lib/hploc-build.glsl"
 
 layout(local_size_x = 32) in;
 

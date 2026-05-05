@@ -1,7 +1,22 @@
 #ifndef RAYTRACE_INCLUDE_GUARD
 #define RAYTRACE_INCLUDE_GUARD
 
-#include "/lib/textures.glsl"
+#ifndef CONTROL_BUFFER_QUALIFIERS
+#define CONTROL_BUFFER_QUALIFIERS restrict readonly
+#endif
+#ifndef BVH2_NODE_BUFFER_QUALIFIERS
+#define BVH2_NODE_BUFFER_QUALIFIERS restrict readonly
+#endif
+#ifndef QUAD_POS_READ_BUFFER_QUALIFIERS
+#define QUAD_POS_READ_BUFFER_QUALIFIERS restrict readonly
+#endif
+
+#include "/lib/buffers/control.glsl"
+#include "/lib/quad-read.glsl"
+#include "/lib/buffers/bvh2-node.glsl"
+#include "/lib/buffers/quad-pos-read.glsl"
+#include "/lib/hploc.glsl"
+#include "/lib/textures-read.glsl"
 
 #define ALPHA_TEST
 
@@ -152,6 +167,32 @@ vec3 interpolateTint(QuadData qd, vec2 bary, int triIndex) {
    }
 }
 
+vec4 sampleQuadTexture(QuadData qd, vec2 uv) {
+   uint texID = qd.textureID;
+   if (texID == 0u) {
+      return texture(blockAtlas, uv);
+   }
+
+   #ifdef ENTITY_TEXTURES
+   return sampleEntityTexture(texID, uv);
+   #else
+   return vec4(1.0);
+   #endif
+}
+
+bool quadAlphaSkipsIntersection(QuadData qd, vec2 bary, int triIndex) {
+   #ifdef ALPHA_TEST
+   bool alphaTested = qdAlphaTested(qd);
+   bool translucentCutout = qdTranslucent(qd) && qdBlockID(qd) != 1u;
+   if (!alphaTested && !translucentCutout) return false;
+
+   vec2 uv = interpolateUV(qd, bary, triIndex);
+   return sampleQuadTexture(qd, uv).a < alphaTestRef;
+   #else
+   return false;
+   #endif
+}
+
 // Keep SSBO-based helpers for pt.csh backward compatibility
 vec2 interpolateQuadUV(uint quadID, vec2 bary, int triIndex) {
    return interpolateUV(quadData[quadID], bary, triIndex);
@@ -188,7 +229,8 @@ TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer) {
 
          if (!isInternalNode(nodeID)) {
             if (prim < numQuads) {
-               uint mat = quadData[prim].encodedMaterial >> 24u;
+               QuadData qd = quadData[prim];
+               uint mat = qdMaterialBits(qd);
 
                if (skipPlayer && ((mat & 0x40u) != 0u)) {
                   nodeID = INVALID_ID;
@@ -202,24 +244,10 @@ TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer) {
                #endif
                if (intersectQuadGeom(prim, ro, rd, tHit, bary, tri)) {
                   #ifdef ALPHA_TEST
-                  if ((mat & 0x10u) != 0u) {
-                     QuadData qd = quadData[prim];
-                     vec2 uv = interpolateUV(qd, bary, tri);
-                     uint texID = qd.textureID;
-                     bool transparent = false;
-                     if (texID == 0u) {
-                        transparent = texture(blockAtlas, uv).a < alphaTestRef;
-                     }
-                     #ifdef ENTITY_TEXTURES
-                     else {
-                        transparent = sampleEntityTexture(texID, uv).a < alphaTestRef;
-                     }
-                     #endif
-                     if (transparent) {
-                        tHit = prevT;
-                        nodeID = INVALID_ID;
-                        continue;
-                     }
+                  if (quadAlphaSkipsIntersection(qd, bary, tri)) {
+                     tHit = prevT;
+                     nodeID = INVALID_ID;
+                     continue;
                   }
                   #endif
                   hitQuad = prim;
@@ -299,6 +327,8 @@ TraceResult traceBVH(vec3 ro, vec3 rd) {
 }
 
 bool shadowTriHit(QuadData qd, vec2 bary, int triIndex, float hitT, inout vec3 tint) {
+   if (quadAlphaSkipsIntersection(qd, bary, triIndex)) return false;
+
    if (qdTranslucent(qd)) {
       if (qdBlockID(qd) == 1u) {
          vec3 waterTint = pow(interpolateTint(qd, bary, triIndex), vec3(2.2));
@@ -306,28 +336,12 @@ bool shadowTriHit(QuadData qd, vec2 bary, int triIndex, float hitT, inout vec3 t
          return tint == vec3(0.0);
       }
       vec2 hitUV = interpolateUV(qd, bary, triIndex);
-      uint hitTexID = qd.textureID;
-      vec4 texSample = (hitTexID == 0u) ? texture(blockAtlas, hitUV) : vec4(1.0);
+      vec4 texSample = sampleQuadTexture(qd, hitUV);
       float transparency = 1.0 - texSample.a;
       tint *= mix(vec3(0.0), pow(texSample.rgb * interpolateTint(qd, bary, triIndex), vec3(2.2)), transparency);
       return tint == vec3(0.0);
    } else {
-      #ifdef ALPHA_TEST
-      if (!qdAlphaTested(qd)) return true;
-      vec2 hitUV = interpolateUV(qd, bary, triIndex);
-      uint hitTexID = qd.textureID;
-      if (hitTexID == 0u) {
-         return texture(blockAtlas, hitUV).a >= alphaTestRef;
-      } else {
-         #ifdef ENTITY_TEXTURES
-         return sampleEntityTexture(hitTexID, hitUV).a >= alphaTestRef;
-         #else
-         return true;
-         #endif
-      }
-      #else
       return true;
-      #endif
    }
 }
 

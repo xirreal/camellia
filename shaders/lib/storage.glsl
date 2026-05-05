@@ -69,6 +69,30 @@ struct AABB {
    float maxZ;
 }; // 24 bytes
 
+struct BVH2Node {
+   vec3 c0Min;
+   uint leftChild;
+   vec3 c0Max;
+   uint rightChild;
+   vec3 c1Min;
+   float _pad0;
+   vec3 c1Max;
+   float _pad1;
+}; // 64 bytes
+
+struct QuadPositions {
+   vec4 p0p1x;    // p0.xyz, p1.x
+   vec4 p1yzp2xy; // p1.yz, p2.xy
+   vec4 p2zp3;    // p2.z, p3.xyz
+}; // 48 bytes
+
+void unpackQuadPositions(QuadPositions qp, out vec3 p0, out vec3 p1, out vec3 p2, out vec3 p3) {
+   p0 = qp.p0p1x.xyz;
+   p1 = vec3(qp.p0p1x.w, qp.p1yzp2xy.xy);
+   p2 = vec3(qp.p1yzp2xy.zw, qp.p2zp3.x);
+   p3 = qp.p2zp3.yzw;
+}
+
 AABB makeAABB(vec3 bMin, vec3 bMax) {
    return AABB(bMin.x, bMin.y, bMin.z, bMax.x, bMax.y, bMax.z);
 }
@@ -114,54 +138,6 @@ uint sortPrepareWorkgroupsForQuadEnd(uint quadEnd) {
    return max(quadWorkgroups, SORT_GLOBAL_HIST_WORKGROUPS);
 }
 
-layout(std430, binding = 1) restrict buffer ControlBuffer {
-   uint sortDispatchX; // 0
-   uint sortDispatchY; // 4
-   uint sortDispatchZ; // 8
-   uint hplocDispatchX; // 12
-   uint hplocDispatchY; // 16
-   uint hplocDispatchZ; // 20
-   uint prepareDispatchX; // 24
-   uint prepareDispatchY; // 28
-   uint prepareDispatchZ; // 32
-
-   uint boundsMinX;
-   uint boundsMinY;
-   uint boundsMinZ;
-   uint boundsMaxX;
-   uint boundsMaxY;
-   uint boundsMaxZ;
-   uint numBVH2Nodes;
-   uint sortTotal;
-   uint sortErrors;
-   uint pairErrors;
-   uint buildError;
-   uint rootClusterID;
-   uint quadErrNanInf;
-   uint quadErrExtent;
-   uint quadErrCoplanar;
-   uint quadErrDegenerate;
-   uint quadErrCollapsed;
-   uint realCount1;
-   uint realCount2;
-   uint textureEntries;
-   int lastTextureReloadCount;
-   uint textureReloadDelay;
-   uint sceneFrozen;
-   uint frozenFirstPerson;
-   float autofocusDist;
-
-   mat4 frozenProjInv;
-   mat4 frozenModelViewInv;
-   vec4 frozenLightPos;
-   vec4 frozenCameraPos;
-   vec4 frozenSunPos;
-} control;
-
-layout(std430, binding = 2) restrict buffer AABBBuffer {
-   AABB aabbs[];
-};
-
 const uint MAX_TEXTURES = 65536u;
 const uint MAX_TEXTURE_DATA = 268435456u; // 1GiB of total data
 
@@ -171,135 +147,6 @@ struct TextureInfo {
    uint sizeX;
    uint sizeY;
 };
-
-#ifdef QUAD_WRITE
-
-layout(std430, binding = 0) restrict buffer QuadDataBuffer {
-   uint quadCount;
-   QuadData quadData[];
-};
-
-layout(std430, binding = 10) restrict writeonly buffer QuadPosBuffer {
-   float quadPosData[];
-};
-
-void getQuadWriteSlot(out uint quadID, out uint slot) {
-   uvec4 activeMask = subgroupBallot(true);
-   uint activeThreads = subgroupBallotBitCount(activeMask);
-   uint quadAlloc = (activeThreads + 3u) >> 2u;
-
-   uint baseQuad = INVALID_ID;
-   if (subgroupElect()) {
-      baseQuad = atomicAdd(quadCount, quadAlloc);
-      if (baseQuad < uint(MAX_QUAD_COUNT)) {
-         uint quadEnd = min(baseQuad + quadAlloc, uint(MAX_QUAD_COUNT));
-         uint prepareWGs = sortPrepareWorkgroupsForQuadEnd(quadEnd);
-         atomicMax(control.prepareDispatchX, prepareWGs);
-      }
-   }
-   baseQuad = subgroupBroadcastFirst(baseQuad);
-
-   uint lane = subgroupBallotExclusiveBitCount(activeMask);
-   quadID = baseQuad + (lane >> 2u);
-   slot = lane & 3u;
-
-   if (quadID >= MAX_QUAD_COUNT) quadID = INVALID_ID;
-}
-
-void writeQuadVertex(uint quadID, uint slot, vec3 pos, vec2 uv, vec3 tintColor) {
-   uint base = quadID * 12u + slot * 3u;
-   quadPosData[base + 0u] = pos.x;
-   quadPosData[base + 1u] = pos.y;
-   quadPosData[base + 2u] = pos.z;
-
-   uint packedUV = packHalf2x16(uv);
-   if (slot == 0u) quadData[quadID].uv0 = packedUV;
-   else if (slot == 1u) quadData[quadID].uv1 = packedUV;
-   else if (slot == 2u) quadData[quadID].uv2 = packedUV;
-   else quadData[quadID].uv3 = packedUV;
-
-   uint rgb565 = packRGB565(tintColor);
-   if (slot < 2u) {
-      uint shift = slot * 16u;
-      atomicOr(quadData[quadID].tint01, rgb565 << shift);
-   } else {
-      uint shift = (slot - 2u) * 16u;
-      atomicOr(quadData[quadID].tint23, rgb565 << shift);
-   }
-}
-
-void writeQuadMaterial(uint quadID, uint blockID, uint textureID, float emission, bool alphaTested, bool translucent, bool isPlayer) {
-   uint mat = (uint(clamp(emission, 0.0, 15.0))) |
-         (alphaTested ? 0x10u : 0u) |
-         (translucent ? 0x20u : 0u) |
-         (isPlayer ? 0x40u : 0u);
-   quadData[quadID].encodedMaterial = (blockID & 0x00FFFFFFu) | (mat << 24u);
-   quadData[quadID].textureID = textureID;
-   quadData[quadID].tint01 = 0u;
-   quadData[quadID].tint23 = 0u;
-}
-
-layout(std430, binding = 8) restrict buffer TextureInfosBuffer {
-   uint textureDataOffset;
-   TextureInfo textureMap[];
-};
-
-layout(std430, binding = 9) restrict buffer TextureDataBuffer {
-   uint textureData[];
-};
-
-#else
-
-layout(std430, binding = 0) restrict readonly buffer QuadDataBuffer {
-   uint quadCount;
-   QuadData quadData[];
-};
-
-layout(std430, binding = 8) restrict readonly buffer TextureInfosBuffer {
-   uint textureDataOffset;
-   TextureInfo textureMap[];
-};
-
-layout(std430, binding = 9) restrict readonly buffer TextureDataBuffer {
-   uint textureData[];
-};
-
-#endif
-
-uint quadBlockID(uint q) {
-   return quadData[q].encodedMaterial & 0x00FFFFFFu;
-}
-uint quadMaterial(uint q) {
-   return quadData[q].encodedMaterial >> 24u;
-}
-float quadEmission(uint q) {
-   return float(quadMaterial(q) & 0x0Fu);
-}
-bool quadAlphaTested(uint q) {
-   return (quadMaterial(q) & 0x10u) != 0u;
-}
-bool quadTranslucent(uint q) {
-   return (quadMaterial(q) & 0x20u) != 0u;
-}
-bool quadPlayerModel(uint q) {
-   return (quadMaterial(q) & 0x40u) != 0u;
-}
-uint quadTextureID(uint q) {
-   return quadData[q].textureID;
-}
-
-vec2 quadUV(uint q, uint i) {
-   uint p = (i == 0u) ? quadData[q].uv0 :
-      (i == 1u) ? quadData[q].uv1 :
-      (i == 2u) ? quadData[q].uv2 : quadData[q].uv3;
-   return unpackHalf2x16(p);
-}
-
-vec3 quadTint(uint q, uint i) {
-   uint w = (i < 2u) ? quadData[q].tint01 : quadData[q].tint23;
-   uint s = (i & 1u) * 16u;
-   return unpackRGB565((w >> s) & 0xFFFFu);
-}
 
 uint floatToOrderedUint(float v) {
    int i = floatBitsToInt(v);
@@ -322,52 +169,6 @@ uvec3 encodeBound(vec3 pos) {
       floatToOrderedUint(pos.y),
       floatToOrderedUint(pos.z)
    );
-}
-
-vec3 getSceneMax() {
-   uvec3 rawMax = uvec3(
-         control.boundsMaxX,
-         control.boundsMaxY,
-         control.boundsMaxZ
-      );
-
-   return vec3(
-      orderedUintToFloat(rawMax.x),
-      orderedUintToFloat(rawMax.y),
-      orderedUintToFloat(rawMax.z)
-   );
-}
-
-vec3 getSceneMin() {
-   uvec3 rawMin = uvec3(
-         control.boundsMinX,
-         control.boundsMinY,
-         control.boundsMinZ
-      );
-
-   return vec3(
-      orderedUintToFloat(rawMin.x),
-      orderedUintToFloat(rawMin.y),
-      orderedUintToFloat(rawMin.z)
-   );
-}
-
-void updateSceneBounds(vec3 pos) {
-   vec3 sMin = subgroupMin(pos);
-   vec3 sMax = subgroupMax(pos);
-
-   if (subgroupElect()) {
-      uvec3 uMin = encodeBound(sMin);
-      uvec3 uMax = encodeBound(sMax);
-
-      atomicMin(control.boundsMinX, uMin.x);
-      atomicMin(control.boundsMinY, uMin.y);
-      atomicMin(control.boundsMinZ, uMin.z);
-
-      atomicMax(control.boundsMaxX, uMax.x);
-      atomicMax(control.boundsMaxY, uMax.y);
-      atomicMax(control.boundsMaxZ, uMax.z);
-   }
 }
 
 #endif

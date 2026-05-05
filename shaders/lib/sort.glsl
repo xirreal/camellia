@@ -7,6 +7,24 @@
    SPDX-License-Identifier: MIT
 */
 
+#ifndef CONTROL_BUFFER_QUALIFIERS
+#define CONTROL_BUFFER_QUALIFIERS restrict readonly
+#endif
+#ifndef MORTON_CODE_BUFFER_QUALIFIERS
+#define MORTON_CODE_BUFFER_QUALIFIERS restrict
+#endif
+#ifndef CLUSTER_INDEX_BUFFER_QUALIFIERS
+#define CLUSTER_INDEX_BUFFER_QUALIFIERS restrict coherent
+#endif
+#ifndef SORT_SCRATCH_BUFFER_QUALIFIERS
+#define SORT_SCRATCH_BUFFER_QUALIFIERS restrict
+#endif
+
+#include "/lib/buffers/control.glsl"
+#include "/lib/buffers/morton.glsl"
+#include "/lib/buffers/cluster-index.glsl"
+#include "/lib/buffers/sort-scratch.glsl"
+
 uint sortGetN() {
    return control.sortTotal;
 }

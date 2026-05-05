@@ -1,7 +1,7 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(rgba16f) uniform writeonly image2D colorimg1;
-layout(rgba32f) uniform image2D colorimg5;
+layout(rgba32f) uniform writeonly image2D colorimg5;
 
 uniform float viewWidth;
 uniform float viewHeight;
@@ -25,6 +25,7 @@ uniform float near;
 #include "/lib/hploc.glsl"
 #include "/lib/encoding.glsl"
 #include "/lib/noise.glsl"
+#define CONTROL_BUFFER_QUALIFIERS restrict
 #include "/lib/raytrace.glsl"
 #include "/lib/atmosphere.glsl"
 #include "/lib/sellmeier.glsl"
