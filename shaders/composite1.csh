@@ -2,17 +2,13 @@
 
 //#define ENABLE_QUAD_VALIDATION
 
-#ifdef ENABLE_QUAD_VALIDATION
-const ivec3 workGroups = ivec3(131072, 1, 1);
-#else
-const ivec3 workGroups = ivec3(1, 1, 1);
-#endif
-
 #include "/lib/storage.glsl"
 #include "/lib/buffers/control.glsl"
 #include "/lib/buffers/quad-data.glsl"
 #include "/lib/buffers/quad-pos-read.glsl"
 #include "/lib/hploc.glsl"
+
+const ivec3 workGroups = ivec3(int((MAX_QUAD_COUNT + 63) / 64), 1, 1);
 
 layout(local_size_x = 64) in;
 
@@ -30,10 +26,6 @@ float triangleAreaSq(vec3 a, vec3 b, vec3 c) {
 }
 
 void main() {
-   #ifndef ENABLE_QUAD_VALIDATION
-   return;
-   #endif
-
    uint gID = gl_GlobalInvocationID.x;
    uint numQuads = min(quadCount, uint(MAX_QUAD_COUNT));
 

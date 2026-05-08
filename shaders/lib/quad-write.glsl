@@ -21,11 +21,6 @@ void getQuadWriteSlot(out uint quadID, out uint slot) {
    uint baseQuad = INVALID_ID;
    if (subgroupElect()) {
       baseQuad = atomicAdd(quadCount, quadAlloc);
-      if (baseQuad < uint(MAX_QUAD_COUNT)) {
-         uint quadEnd = min(baseQuad + quadAlloc, uint(MAX_QUAD_COUNT));
-         uint prepareWGs = sortPrepareWorkgroupsForQuadEnd(quadEnd);
-         atomicMax(control.prepareDispatchX, prepareWGs);
-      }
    }
    baseQuad = subgroupBroadcastFirst(baseQuad);
 

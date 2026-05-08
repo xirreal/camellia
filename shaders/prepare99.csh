@@ -3,13 +3,8 @@
 //#define ENABLE_SORT_VALIDATION
 
 #include "/lib/storage.glsl"
-#ifndef ENABLE_SORT_VALIDATION
-#define CONTROL_BUFFER_QUALIFIERS restrict readonly
-#endif
 #include "/lib/buffers/control.glsl"
 #include "/lib/scene-read.glsl"
-#define PARENT_ID_BUFFER_QUALIFIERS restrict writeonly
-#include "/lib/buffers/parent-id.glsl"
 #include "/lib/buffers/morton.glsl"
 #define CLUSTER_INDEX_BUFFER_QUALIFIERS restrict readonly
 #include "/lib/buffers/cluster-index.glsl"
@@ -23,37 +18,33 @@ void main() {
    uint N = control.sortTotal;
    if (control.sceneFrozen == 1u) return;
 
-   if (gID < N) {
-      parentIDs[gID] = INVALID_ID;
+   if (gID >= N) return;
 
-      #ifdef ENABLE_SORT_VALIDATION
-      if (gID < N - 1u) {
-         if (mortonCodes[gID] > mortonCodes[gID + 1u]) {
-            atomicAdd(control.sortErrors, 1u);
-         }
+   if (gID < N - 1u) {
+      if (mortonCodes[gID] > mortonCodes[gID + 1u]) {
+         atomicAdd(control.sortErrors, 1u);
       }
+   }
 
-      uint ci = clusterIndices[gID];
-      uint quadID = getClusterPrimID(ci);
+   uint ci = clusterIndices[gID];
+   uint quadID = getClusterPrimID(ci);
 
-      if (quadID < N) {
-         QuadPositions qp = quadPositions[quadID];
-         vec3 p0, p1, p2, p3;
-         unpackQuadPositions(qp, p0, p1, p2, p3);
-         vec3 quadCenter = (p0 + p1 + p2 + p3) * 0.25;
+   if (quadID < N) {
+      QuadPositions qp = quadPositions[quadID];
+      vec3 p0, p1, p2, p3;
+      unpackQuadPositions(qp, p0, p1, p2, p3);
+      vec3 quadCenter = (p0 + p1 + p2 + p3) * 0.25;
 
-         vec3 sceneMin = getSceneMin();
-         vec3 sceneMax = getSceneMax();
-         vec3 range = max(sceneMax - sceneMin, vec3(1e-9));
-         vec3 normCentroid = (quadCenter - sceneMin) / range;
+      vec3 sceneMin = getSceneMin();
+      vec3 sceneMax = getSceneMax();
+      vec3 range = max(sceneMax - sceneMin, vec3(1e-9));
+      vec3 normCentroid = (quadCenter - sceneMin) / range;
 
-         uint expectedMorton = encodeMorton3D(normCentroid);
-         if (expectedMorton != mortonCodes[gID]) {
-            atomicAdd(control.pairErrors, 1u);
-         }
-      } else {
+      uint expectedMorton = encodeMorton3D(normCentroid);
+      if (expectedMorton != mortonCodes[gID]) {
          atomicAdd(control.pairErrors, 1u);
       }
-      #endif
+   } else {
+      atomicAdd(control.pairErrors, 1u);
    }
 }

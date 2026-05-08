@@ -1,23 +1,19 @@
 #version 460
 
+#define MODE 0 //[0 1 2 3]
 //#define ENABLE_DEBUG_OVERLAY
 //#define ENABLE_SORT_VALIDATION
 //#define ENABLE_QUAD_VALIDATION
 //#define ENTITY_TEXTURES_DEBUG
-#define MODE 1 //[0 1 2 3]
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(rgba8) uniform writeonly image2D colorimg0;
 
 uniform sampler2D colortex0;
-uniform sampler2D colortex5;
-uniform sampler2D colortex2;
-uniform sampler2D agxLut;
 uniform float viewWidth;
 uniform float viewHeight;
 uniform int textureReloadCount;
-uniform int frameCounter;
 
 #include "/lib/storage.glsl"
 #define CONTROL_BUFFER_QUALIFIERS restrict readonly
@@ -28,42 +24,19 @@ uniform int frameCounter;
 #include "/lib/buffers/texture-infos.glsl"
 #include "/lib/hploc.glsl"
 #include "/lib/text-rendering.glsl"
-#include "/lib/agx.glsl"
 
 vec3 gradient(float t) {
    return mix(vec3(0.4, 1.0, 0.4), vec3(0.9, 0.2, 0.25), t);
 }
 
-float _ditherHash(vec3 p) {
-   p = fract(p * 0.1031);
-   p += dot(p, p.zyx + 31.32);
-   return fract((p.x + p.y) * p.z);
-}
-
-vec3 tpdfDither(ivec2 coord, int frame) {
-   vec3 c = vec3(coord, frame);
-   float r0 = _ditherHash(c + vec3(0.0, 0.0, 0.0));
-   float r1 = _ditherHash(c + vec3(0.0, 0.0, 1.0));
-   float r2 = _ditherHash(c + vec3(0.0, 1.0, 0.0));
-   float r3 = _ditherHash(c + vec3(0.0, 1.0, 1.0));
-   float r4 = _ditherHash(c + vec3(1.0, 0.0, 0.0));
-   float r5 = _ditherHash(c + vec3(1.0, 0.0, 1.0));
-   return vec3(r0 - r1, r2 - r3, r4 - r5) / 255.0;
-}
-
 void main() {
+   #ifdef ENABLE_DEBUG_OVERLAY
+   #endif
    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
 
    if (coord.x >= int(viewWidth) || coord.y >= int(viewHeight)) return;
 
-   #if MODE == 2
-   vec3 color = texture(colortex5, vec2(coord + 0.5) / vec2(viewWidth, viewHeight)).rgb;
-   #else
-   vec3 hdr = texture(colortex5, vec2(coord + 0.5) / vec2(viewWidth, viewHeight)).rgb;
-   vec3 color = agxComplete(hdr, agxLut);
-   #endif
-
-   #ifdef ENABLE_DEBUG_OVERLAY
+   vec3 color = texture(colortex0, vec2(coord + 0.5) / vec2(viewWidth, viewHeight)).rgb;
 
    beginText(ivec2(coord * 0.25), ivec2(2, int(viewHeight * 0.25) - 1));
    text.bgCol = vec4(0.0, 0.0, 0.0, 0.7);
@@ -134,11 +107,9 @@ void main() {
    text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
    printUnsignedIntWithSeparators(textureReloadCount);
    printLine();
-
    #endif
 
    #ifdef ENABLE_SORT_VALIDATION
-   // Sort validation
    printLine();
    text.fgCol = vec4(1.0);
    printString((_S, _o, _r, _t, _e, _d, _colon));
@@ -173,7 +144,6 @@ void main() {
    }
    printLine();
 
-   // Morton codes sample
    printLine();
    text.fgCol = vec4(1.0);
    printString((_M, _o, _r, _t, _o, _n, _space, _C, _o, _d, _e, _s, _colon));
@@ -194,7 +164,6 @@ void main() {
    #endif
 
    #ifdef ENABLE_QUAD_VALIDATION
-   // Build error
    printLine();
    text.fgCol = vec4(1.0);
    printString((_B, _u, _i, _l, _d, _space, _E, _r, _r, _o, _r, _s, _colon));
@@ -211,7 +180,6 @@ void main() {
       printString((_n, _o, _n, _e));
    }
 
-   // BVH root
    printLine();
    text.fgCol = vec4(1.0);
    printString((_R, _o, _o, _t, _colon));
@@ -230,15 +198,10 @@ void main() {
    printUnsignedIntWithSeparators(control.numBVH2Nodes);
    printLine();
 
-   // Quad validation
    printLine();
    text.fgCol = vec4(1.0);
    printString((_Q, _u, _a, _d, _space, _V, _a, _l, _i, _d, _colon));
    printLine();
-
-   uint totalQuadErr = control.quadErrNanInf + control.quadErrExtent
-         + control.quadErrCoplanar + control.quadErrDegenerate
-         + control.quadErrCollapsed;
 
    text.fgCol = vec4(1.0);
    printString((_space, _N, _a, _N, _colon));
@@ -277,10 +240,6 @@ void main() {
    #endif
 
    endText(color);
-
-   #endif
-
-   color += tpdfDither(coord, frameCounter);
 
    imageStore(colorimg0, coord, vec4(color, 1.0));
 }

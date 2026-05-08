@@ -56,21 +56,4 @@ void main() {
       mortonCodes[gID] = morton;
       clusterIndices[gID] = makeLeafID(gID);
    }
-
-   if (gID == 0u) {
-      uint sortWorkgroups = (numQuads + SORT_PART_SIZE - 1u) / SORT_PART_SIZE;
-
-      control.sortDispatchX = sortWorkgroups;
-      control.sortDispatchY = 1u;
-      control.sortDispatchZ = 1u;
-
-      control.sortTotal = numQuads;
-
-      uint hplocWGs = (numQuads + uint(WAVE_SIZE) - 1u) / uint(WAVE_SIZE);
-      control.hplocDispatchX = hplocWGs;
-      control.hplocDispatchY = 1u;
-      control.hplocDispatchZ = 1u;
-
-      control.numBVH2Nodes = 0u;
-   }
 }

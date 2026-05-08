@@ -31,7 +31,7 @@ option.DOF_BLADES.comment=Number of aperture blades. Controls the shape of out-o
 value.DOF_BLADES.0=Circle
 
 option.MODE=Mode
-value.MODE.0=Pathtrace
-value.MODE.1=Raytraced shadows
+value.MODE.0=ReSTIR
+value.MODE.1=Reference PT
 value.MODE.2=BVH debug
 value.MODE.3=Skip
