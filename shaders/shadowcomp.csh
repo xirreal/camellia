@@ -1,6 +1,6 @@
 #version 460
 
-#include "/lib/storage.glsl"
+#include "/lib/core/storage.glsl"
 #include "/lib/buffers/control.glsl"
 #define QUAD_DATA_BUFFER_QUALIFIERS restrict readonly
 #include "/lib/buffers/quad-data.glsl"

@@ -13,9 +13,9 @@ uniform bool firstPersonCamera;
 uniform int entityId;
 
 #define QUAD_WRITE
-#include "/lib/storage.glsl"
-#include "/lib/quad-write.glsl"
-#include "/lib/textures-write.glsl"
+#include "/lib/core/storage.glsl"
+#include "/lib/scene/quad-write.glsl"
+#include "/lib/scene/textures-write.glsl"
 
 #ifdef MC_GL_VENDOR_NVIDIA
 out gl_PerVertex {

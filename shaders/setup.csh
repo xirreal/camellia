@@ -1,7 +1,7 @@
 #version 460 compatibility
 
 #define QUAD_WRITE
-#include "/lib/storage.glsl"
+#include "/lib/core/storage.glsl"
 #include "/lib/buffers/control.glsl"
 #define TEXTURE_INFOS_BUFFER_QUALIFIERS restrict writeonly
 #include "/lib/buffers/texture-infos.glsl"

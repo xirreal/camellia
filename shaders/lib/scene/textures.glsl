@@ -2,9 +2,9 @@
 #define TEXTURES_INCLUDE_GUARD
 
 #ifdef QUAD_WRITE
-#include "/lib/textures-write.glsl"
+#include "/lib/scene/textures-write.glsl"
 #else
-#include "/lib/textures-read.glsl"
+#include "/lib/scene/textures-read.glsl"
 #endif
 
 #endif

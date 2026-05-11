@@ -1,10 +1,6 @@
 #version 460
 
-#define MODE 0 //[0 1 2 3]
-//#define ENABLE_DEBUG_OVERLAY
-//#define ENABLE_SORT_VALIDATION
-//#define ENABLE_QUAD_VALIDATION
-//#define ENTITY_TEXTURES_DEBUG
+#include "/lib/core/settings.glsl"
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
@@ -15,15 +11,15 @@ uniform float viewWidth;
 uniform float viewHeight;
 uniform int textureReloadCount;
 
-#include "/lib/storage.glsl"
+#include "/lib/core/storage.glsl"
 #define CONTROL_BUFFER_QUALIFIERS restrict readonly
 #include "/lib/buffers/control.glsl"
-#include "/lib/scene-read.glsl"
+#include "/lib/scene/scene-read.glsl"
 #include "/lib/buffers/quad-data.glsl"
 #include "/lib/buffers/morton.glsl"
 #include "/lib/buffers/texture-infos.glsl"
-#include "/lib/hploc.glsl"
-#include "/lib/text-rendering.glsl"
+#include "/lib/bvh/hploc.glsl"
+#include "/lib/ui/text-rendering.glsl"
 
 vec3 gradient(float t) {
    return mix(vec3(0.4, 1.0, 0.4), vec3(0.9, 0.2, 0.25), t);

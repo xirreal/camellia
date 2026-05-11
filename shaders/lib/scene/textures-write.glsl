@@ -8,7 +8,7 @@
 #define TEXTURE_DATA_BUFFER_QUALIFIERS restrict writeonly
 #endif
 
-#include "/lib/textures-common.glsl"
+#include "/lib/scene/textures-common.glsl"
 #include "/lib/buffers/texture-infos.glsl"
 #include "/lib/buffers/texture-data.glsl"
 

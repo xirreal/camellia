@@ -1,8 +1,9 @@
 #ifndef TEXTURES_COMMON_INCLUDE_GUARD
 #define TEXTURES_COMMON_INCLUDE_GUARD
 
+#include "/lib/core/settings.glsl"
+
 #define ENTITY_TEXTURES
-//#define ENTITY_TEXTURES_DEBUG
 //#define ENTITY_PBR
 
 uint expandBits2D(uint v) {

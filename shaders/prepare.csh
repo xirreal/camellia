@@ -1,8 +1,8 @@
 #version 460
 
-#include "/lib/storage.glsl"
+#include "/lib/core/storage.glsl"
 #include "/lib/buffers/control.glsl"
-#include "/lib/scene-bounds.glsl"
+#include "/lib/scene/scene-bounds.glsl"
 #include "/lib/buffers/quad-data.glsl"
 #include "/lib/buffers/quad-pos-read.glsl"
 #define AABB_BUFFER_QUALIFIERS restrict writeonly
@@ -13,7 +13,7 @@
 #include "/lib/buffers/cluster-index.glsl"
 #define SORT_SCRATCH_BUFFER_QUALIFIERS restrict writeonly
 #include "/lib/buffers/sort-scratch.glsl"
-#include "/lib/hploc.glsl"
+#include "/lib/bvh/hploc.glsl"
 
 layout(local_size_x = 256) in;
 

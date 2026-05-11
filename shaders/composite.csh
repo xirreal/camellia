@@ -8,13 +8,13 @@
    https://gist.github.com/natevm/6618402427ad6466bf555d67602adfa8
 */
 
-#include "/lib/storage.glsl"
+#include "/lib/core/storage.glsl"
 #include "/lib/buffers/control.glsl"
 #include "/lib/buffers/cluster-index.glsl"
 #include "/lib/buffers/parent-id.glsl"
 #define BVH2_NODE_BUFFER_QUALIFIERS restrict
 #include "/lib/buffers/bvh2-node.glsl"
-#include "/lib/hploc-build.glsl"
+#include "/lib/bvh/hploc-build.glsl"
 
 layout(local_size_x = 32) in;
 

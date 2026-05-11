@@ -12,12 +12,13 @@ uniform vec3 cameraPosition;
 uniform int frameCounter;
 
 #define QUAD_WRITE
-#include "/lib/storage.glsl"
+#include "/lib/core/storage.glsl"
 #include "/lib/buffers/control.glsl"
 #define QUAD_DATA_BUFFER_QUALIFIERS restrict writeonly
 #include "/lib/buffers/quad-data.glsl"
 #define TEXTURE_INFOS_BUFFER_QUALIFIERS restrict writeonly
 #include "/lib/buffers/texture-infos.glsl"
+#include "/lib/core/settings.glsl"
 
 const ivec3 workGroups = ivec3(256, 1, 1);
 
@@ -44,6 +45,7 @@ void main() {
       }
    }
 
+   #if MODE == 1
    if (hideGUI && frameCounter > 15) {
       if (id == 0) {
          if (control.sceneFrozen == 0u) {
@@ -70,6 +72,7 @@ void main() {
       }
       return;
    }
+   #endif
 
    if (id == 0) {
       control.sceneFrozen = 0u;

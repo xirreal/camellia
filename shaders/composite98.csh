@@ -10,7 +10,8 @@ uniform float viewWidth;
 uniform float viewHeight;
 uniform int frameCounter;
 
-#include "/lib/agx.glsl"
+#include "/lib/core/settings.glsl"
+#include "/lib/post/agx.glsl"
 
 float _ditherHash(vec3 p) {
    p = fract(p * 0.1031);

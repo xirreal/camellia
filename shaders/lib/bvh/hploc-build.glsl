@@ -1,7 +1,7 @@
 #ifndef HPLOC_BUILD_INCLUDE_GUARD
 #define HPLOC_BUILD_INCLUDE_GUARD
 
-#include "/lib/hploc.glsl"
+#include "/lib/bvh/hploc.glsl"
 #include "/lib/buffers/aabb.glsl"
 #include "/lib/buffers/morton.glsl"
 #include "/lib/buffers/bvh2-node.glsl"

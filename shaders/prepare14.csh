@@ -1,6 +1,6 @@
 #version 460
 
-#include "/lib/storage.glsl"
+#include "/lib/core/storage.glsl"
 #define CONTROL_BUFFER_QUALIFIERS restrict readonly
 #include "/lib/buffers/control.glsl"
 #define PARENT_ID_BUFFER_QUALIFIERS restrict writeonly

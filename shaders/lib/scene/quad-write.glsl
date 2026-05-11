@@ -11,7 +11,7 @@
 #include "/lib/buffers/control.glsl"
 #include "/lib/buffers/quad-data.glsl"
 #include "/lib/buffers/quad-pos-write.glsl"
-#include "/lib/scene-bounds.glsl"
+#include "/lib/scene/scene-bounds.glsl"
 
 void getQuadWriteSlot(out uint quadID, out uint slot) {
    uvec4 activeMask = subgroupBallot(true);

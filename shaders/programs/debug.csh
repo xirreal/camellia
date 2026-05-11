@@ -15,11 +15,11 @@ uniform sampler2D specularAtlas;
 uniform int isEyeInWater;
 uniform vec3 cameraPosition;
 
-#include "/lib/storage.glsl"
-#include "/lib/hploc.glsl"
-#include "/lib/encoding.glsl"
-#include "/lib/noise.glsl"
-#include "/lib/raytrace.glsl"
+#include "/lib/core/storage.glsl"
+#include "/lib/bvh/hploc.glsl"
+#include "/lib/core/encoding.glsl"
+#include "/lib/core/noise.glsl"
+#include "/lib/bvh/raytrace.glsl"
 
 vec3 TurboColormap(float x) {
    const vec4 kRedVec4 = vec4(0.13572138, 4.61539260, -42.66032258, 132.13108234);

@@ -1,15 +1,14 @@
 #version 460
 
-//#define ENABLE_SORT_VALIDATION
-
-#include "/lib/storage.glsl"
+#include "/lib/core/settings.glsl"
+#include "/lib/core/storage.glsl"
 #include "/lib/buffers/control.glsl"
-#include "/lib/scene-read.glsl"
+#include "/lib/scene/scene-read.glsl"
 #include "/lib/buffers/morton.glsl"
 #define CLUSTER_INDEX_BUFFER_QUALIFIERS restrict readonly
 #include "/lib/buffers/cluster-index.glsl"
 #include "/lib/buffers/quad-pos-read.glsl"
-#include "/lib/hploc.glsl"
+#include "/lib/bvh/hploc.glsl"
 
 layout(local_size_x = 256) in;
 

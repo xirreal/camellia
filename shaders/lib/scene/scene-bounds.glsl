@@ -1,7 +1,7 @@
 #ifndef SCENE_BOUNDS_INCLUDE_GUARD
 #define SCENE_BOUNDS_INCLUDE_GUARD
 
-#include "/lib/scene-read.glsl"
+#include "/lib/scene/scene-read.glsl"
 
 void updateSceneBounds(vec3 pos) {
    vec3 sMin = subgroupMin(pos);

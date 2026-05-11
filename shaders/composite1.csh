@@ -1,20 +1,15 @@
 #version 460
 
-//#define ENABLE_QUAD_VALIDATION
-
-#include "/lib/storage.glsl"
+#include "/lib/core/settings.glsl"
+#include "/lib/core/storage.glsl"
 #include "/lib/buffers/control.glsl"
 #include "/lib/buffers/quad-data.glsl"
 #include "/lib/buffers/quad-pos-read.glsl"
-#include "/lib/hploc.glsl"
+#include "/lib/bvh/hploc.glsl"
 
 const ivec3 workGroups = ivec3(int((MAX_QUAD_COUNT + 63) / 64), 1, 1);
 
 layout(local_size_x = 64) in;
-
-const float MAX_QUAD_EXTENT = 64.0; // max world-space span on any axis
-const float COPLANAR_THRESHOLD = 0.15; // max normal deviation (dot < 1-thresh)
-const float DEGEN_AREA_THRESHOLD = 1e-8; // minimum triangle area squared
 
 bool hasNanInf(vec3 v) {
    return any(isnan(v)) || any(isinf(v));
@@ -44,7 +39,7 @@ void main() {
    vec3 qMin = min(min(p0, p1), min(p2, p3));
    vec3 qMax = max(max(p0, p1), max(p2, p3));
    vec3 extent = qMax - qMin;
-   if (extent.x > MAX_QUAD_EXTENT || extent.y > MAX_QUAD_EXTENT || extent.z > MAX_QUAD_EXTENT) {
+   if (extent.x > VALIDATION_MAX_QUAD_EXTENT || extent.y > VALIDATION_MAX_QUAD_EXTENT || extent.z > VALIDATION_MAX_QUAD_EXTENT) {
       atomicAdd(control.quadErrExtent, 1u);
    }
 
@@ -57,7 +52,7 @@ void main() {
       n1 /= len1;
       n2 /= len2;
       float coplanarity = dot(n1, n2);
-      if (coplanarity < (1.0 - COPLANAR_THRESHOLD)) {
+      if (coplanarity < (1.0 - VALIDATION_COPLANAR_THRESHOLD)) {
          atomicAdd(control.quadErrCoplanar, 1u);
       }
    }
@@ -65,7 +60,7 @@ void main() {
    // degenerate quad (why do i get a few of these?)
    float area1sq = triangleAreaSq(p0, p1, p2);
    float area2sq = triangleAreaSq(p0, p2, p3);
-   if (area1sq < DEGEN_AREA_THRESHOLD || area2sq < DEGEN_AREA_THRESHOLD) {
+   if (area1sq < VALIDATION_DEGEN_AREA_THRESHOLD || area2sq < VALIDATION_DEGEN_AREA_THRESHOLD) {
       atomicAdd(control.quadErrDegenerate, 1u);
    }
 
