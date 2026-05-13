@@ -157,6 +157,10 @@ void main() {
       return;
    }
 
+   // Feed the accepted spatial reuse result into temporal history after the
+   // spatial pass has finished reading the temporal buffers.
+   setTemporalReservoir(coord, frameCounter % 2, reservoir);
+
    vec3 estimate = appliedRadiance + estimateContribution(reservoir, visibleWorldPos, visibleNormal, visibleAlbedo, tint);
    imageStore(colorimg5, coord, vec4(max(estimate, vec3(0.0)), 1.0));
 }

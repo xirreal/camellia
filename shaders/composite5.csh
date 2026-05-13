@@ -170,10 +170,10 @@ void main() {
 
    int temporalResetInterval = max(RESTIR_TEMPORAL_RESET_INTERVAL, 1);
    bool temporalResetFrame = RESTIR_TEMPORAL_RESET_INTERVAL > 0
-      && ((frameCounter % temporalResetInterval) == 0);
+         && ((frameCounter % temporalResetInterval) == 0);
    bool canReuseHistory = frameCounter > 0
-      && control.textureReloadDelay == 0u
-      && !temporalResetFrame;
+         && control.textureReloadDelay == 0u
+         && !temporalResetFrame;
 
    ivec2 previousCoord;
    if (canReuseHistory && reprojectToPreviousCoord(visibleWorldPos, extent, previousCoord)) {
@@ -198,10 +198,9 @@ void main() {
          float historyTarget = targetFunction(history.z, visibleWorldPos, visibleNormal, visibleAlbedo);
          float historyShiftedTarget = historyTarget * historyJacobian;
          float historyWeight = historyShiftedTarget > RESTIR_EPS && visibleSample(history.z, visibleWorldPos, visibleNormal)
-            ? historyShiftedTarget * history.W * history.M
-            : 0.0;
+            ? historyShiftedTarget * history.W * history.M : 0.0;
          if (mergeReservoir(R, history, historyWeight)) {
-            selectedTarget = historyShiftedTarget;
+            selectedTarget = historyTarget; // selectedTarget = historyShiftedTarget;
             hasSelectedTarget = true;
          }
       }
