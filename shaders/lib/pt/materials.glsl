@@ -32,13 +32,12 @@ void computeTangentBasis(uint quadID, int triIndex, vec3 geomNormal, out vec3 ta
 // Fresnel equations. Values are linear Rec. 709 from Table 1 of the Adobe
 // Standard Material Technical Documentation (May 2023).
 //
-// LabPBR metal-id mapping (G channel, 230..237):
 //   230 iron      -> Fe
 //   231 gold      -> Au
 //   232 aluminum  -> Al
 //   233 chrome    -> Cr
 //   234 copper    -> Cu
-//   235 lead      -> Hg (closest entry in the Adobe table)
+//   235 lead      -> Hg (close enough)
 //   236 platinum  -> Pt
 //   237 silver    -> Ag
 const vec3 METAL_F0[8] = vec3[8](
@@ -47,7 +46,7 @@ const vec3 METAL_F0[8] = vec3[8](
       vec3(0.9157, 0.9226, 0.9236), // 232: Al (aluminum)
       vec3(0.5496, 0.5561, 0.5531), // 233: Cr (chrome)
       vec3(1.0000, 0.6504, 0.5274), // 234: Cu (copper)
-      vec3(0.7815, 0.7795, 0.7783), // 235: Hg (lead slot)
+      vec3(0.7815, 0.7795, 0.7783), // 235: Hg (mercury/lead)
       vec3(0.9602, 0.9317, 0.8260), // 236: Pt (platinum)
       vec3(0.9868, 0.9830, 0.9667) // 237: Ag (silver)
    );
@@ -68,8 +67,6 @@ void adobeMetalLookup(int metalID, vec3 baseColor, out vec3 F0, out vec3 F82tint
       F0 = METAL_F0[idx];
       F82tint = METAL_F82_TINT[idx];
    } else {
-      // G == 255 (and any other unrecognized metallic id): use the albedo as
-      // F0 and a neutral white F82-tint, which makes F82-tint reduce to Schlick.
       F0 = baseColor;
       F82tint = vec3(1.0);
    }
@@ -118,8 +115,7 @@ void decodeLabPBR(vec3 hitPos, vec2 uv, vec3 geomNormal, uint quadID, int triInd
    } else {
       metallic = 1.0;
       int metalID = int(g255 + 0.5);
-      // G == 255 (and any unrecognized metal id) falls back to using the albedo
-      // as F0 with a neutral white F82-tint (which reduces F82-tint to Schlick).
+
       adobeMetalLookup(metalID, baseColor, F0, F82tint);
    }
 

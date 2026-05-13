@@ -23,11 +23,6 @@ uniform sampler2D blockAtlas;
 #include "/lib/restir/reservoir.glsl"
 #include "/lib/atmosphere/atmosphere.glsl"
 
-#define RESTIR_MAX_BOUNCES 2
-
-const float RESTIR_SHADOW_MAX_DIST = 256.0;
-const float RESTIR_SUN_HALF_ANGLE = 0.007;
-
 vec3 sampleSunCap(vec3 sunDirection, float cosThreshold) {
    vec3 up = abs(sunDirection.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
    vec3 tangent = normalize(cross(up, sunDirection));
@@ -47,15 +42,15 @@ void main() {
    if (uv.x >= 1.0 || uv.y >= 1.0) return;
 
    vec3 startNormal = texture(colortex7, uv).rgb;
-   vec3 startPos = texture(colortex6, uv).rgb;
+   vec3 visiblePointPos = texture(colortex6, uv).rgb;
+   vec3 visiblePointWorldPos = visiblePointPos + cameraPosition;
 
    if (dot(startNormal, startNormal) <= 0.25) {
-      insertInitialSample(coord, Sample(startPos, vec3(0.0), startPos, vec3(0.0), vec3(0.0), 0u));
+      insertInitialSample(coord, Sample(visiblePointWorldPos, vec3(0.0), visiblePointWorldPos, vec3(0.0), vec3(0.0), 0.0));
       return;
    }
 
    startNormal = normalize(startNormal);
-   startPos += startNormal * 0.01;
 
    initRNG(coord, frameCounter, randomSeed);
 
@@ -64,18 +59,25 @@ void main() {
    vec3 radiance = vec3(0.0);
    vec3 throughput = vec3(1.0);
 
-   vec3 rayOrigin = startPos;
+   vec3 rayOrigin = visiblePointPos + startNormal * RESTIR_SURFACE_BIAS;
    vec3 rayDirection = sampleUniformHemisphere(startNormal);
    vec3 initialRayDirection = rayDirection;
+   float initialSamplePdf = uniformHemispherePdf();
 
    vec3 firstHitPosition = vec3(0.0);
    vec3 firstHitNormal = vec3(0.0);
    bool hasFirstHit = false;
 
-   #pragma unroll
+   float sunCosThreshold = cos(RESTIR_SUN_HALF_ANGLE);
+   float sunSolidAngle = max(2.0 * RESTIR_PI * (1.0 - sunCosThreshold), 1e-8);
+   float pdfNEESun = 1.0 / sunSolidAngle;
+   float pdfBRDF = uniformHemispherePdf();
+
    for (int i = 0; i < RESTIR_MAX_BOUNCES; i++) {
       RestirTraceResult result = traceBVHRestir(rayOrigin, rayDirection, false);
-      throughput *= result.tint;
+      if (i > 0) {
+         throughput *= result.tint;
+      }
 
       if (!result.hit) {
          radiance += throughput * sampleSky(rayDirection, sunDirection);
@@ -90,46 +92,43 @@ void main() {
 
       radiance += throughput * vec3(emission) * albedo;
 
-      vec3 nextDirection = sampleUniformHemisphere(hitNormal);
-      float cosTheta = max(dot(hitNormal, nextDirection), 0.0);
-
-      throughput *= albedo * 2.0 * cosTheta;
-
       if (i == 0) {
          firstHitPosition = hitPosition;
          firstHitNormal = hitNormal;
          hasFirstHit = true;
-
-         float sunCosThreshold = cos(RESTIR_SUN_HALF_ANGLE);
-         float sunSolidAngle = max(2.0 * RESTIR_PI * (1.0 - sunCosThreshold), 1e-8);
-         float pdfNEESun = 1.0 / sunSolidAngle;
-         float pdfBRDF = uniformHemispherePdf();
-
-         // if (sunDirection.y > 0.0) {
-         //    vec3 sunSampleDir = sampleSunCap(sunDirection, sunCosThreshold);
-         //    float sunNdotL = dot(firstHitNormal, sunSampleDir);
-
-         //    if (sunNdotL > 0.0) {
-         //       vec3 shadowTint = traceShadowTinted(firstHitPosition, sunSampleDir, RESTIR_SHADOW_MAX_DIST);
-
-         //       if (shadowTint != vec3(0.0)) {
-         //          float wNEE = pdfNEESun / (pdfNEESun + pdfBRDF);
-         //          vec3 brdf = albedo / RESTIR_PI;
-         //          radiance += brdf * sunNdotL
-         //                * SUN_ILLUMINANCE * atmosphereTransmittance(sunSampleDir)
-         //                * shadowTint * wNEE;
-         //       }
-         //    }
-         // }
       }
 
-      rayOrigin = hitPosition + hitNormal * 0.01;
+      if (sunDirection.y > 0.0) {
+         vec3 sunSampleDir = sampleSunCap(sunDirection, sunCosThreshold);
+         float sunNdotL = dot(hitNormal, sunSampleDir);
+
+         if (sunNdotL > 0.0) {
+            vec3 shadowTint = traceShadowTinted(hitPosition + hitNormal * RESTIR_SURFACE_BIAS, sunSampleDir, RESTIR_SHADOW_MAX_DIST);
+
+            if (shadowTint != vec3(0.0)) {
+               float wNEE = pdfNEESun / (pdfNEESun + pdfBRDF);
+               vec3 brdf = albedo / RESTIR_PI;
+               radiance += throughput * brdf * sunNdotL
+                     * SUN_ILLUMINANCE * atmosphereTransmittance(sunSampleDir)
+                     * shadowTint * wNEE;
+            }
+         }
+      }
+
+      vec3 nextDirection = sampleUniformHemisphere(hitNormal);
+      float cosTheta = max(dot(hitNormal, nextDirection), 0.0);
+      if (cosTheta <= 0.0) break;
+
+      throughput *= albedo * 2.0 * cosTheta;
+
+      rayOrigin = hitPosition + hitNormal * RESTIR_SURFACE_BIAS;
       rayDirection = nextDirection;
    }
 
-   vec3 samplePointPos = hasFirstHit ? firstHitPosition : startPos + initialRayDirection;
-   vec3 samplePointNormal = hasFirstHit ? firstHitNormal : -initialRayDirection;
+   vec3 samplePointPos = hasFirstHit ? firstHitPosition : visiblePointPos + initialRayDirection * RESTIR_SKY_SAMPLE_DISTANCE;
+   vec3 samplePointWorldPos = samplePointPos + cameraPosition;
+   vec3 samplePointNormal = hasFirstHit ? firstHitNormal : vec3(0.0);
 
-   Sample S = Sample(startPos, startNormal, samplePointPos, samplePointNormal, radiance, 0u);
+   Sample S = Sample(visiblePointWorldPos, startNormal, samplePointWorldPos, samplePointNormal, radiance, initialSamplePdf);
    insertInitialSample(coord, S);
 }

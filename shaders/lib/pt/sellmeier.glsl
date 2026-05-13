@@ -1,9 +1,5 @@
 // 7-bin spectral dispersion for glass refraction.
-// Column-normalised RGB masks (Σ MASK[i] = (1,1,1)) so the throughput stays
-// unbiased with uniform 1/N selection. IOR is computed at runtime via the
-// Sellmeier equation for BK7 crown glass (see sellmeierIOR below).
 // Wavelengths (nm):  425  465  490  535  575  605  645
-// Column sums for the 7-mask palette: R=3, G=4, B=3 → entries divided accordingly.
 const int GLASS_BIN_COUNT = 7;
 const float GLASS_WL_BIN[7] = float[7](
       425.0, // V
@@ -14,6 +10,7 @@ const float GLASS_WL_BIN[7] = float[7](
       605.0, // O
       645.0 // R
    );
+// normalized to be sum to 1,1,1
 const vec3 GLASS_MASK_BIN[7] = vec3[7](
       vec3(0.0, 0.0, 1.0 / 3.0), // V → (0,0,1)
       vec3(0.0, 0.0, 1.0 / 3.0), // B → (0,0,1)

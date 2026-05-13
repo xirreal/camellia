@@ -2,43 +2,43 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(rgba32f) uniform writeonly image2D colorimg5;
-
 uniform sampler2D colortex6;
 uniform sampler2D colortex7;
 uniform sampler2D colortex8;
-uniform sampler2D blockAtlas;
 uniform float viewWidth;
 uniform float viewHeight;
+uniform vec3 cameraPosition;
 
 uniform int randomSeed;
 uniform int frameCounter;
 
 #include "/lib/core/storage.glsl"
-#define CONTROL_BUFFER_QUALIFIERS restrict readonly
 #include "/lib/restir/reservoir.glsl"
-#include "/lib/restir/sampling.glsl"
-#include "/lib/bvh/raytrace.glsl"
-
-const int RESTIR_SPATIAL_SAMPLES = 5;
-const float RESTIR_SPATIAL_RADIUS = 8.0;
-const float RESTIR_NORMAL_THRESHOLD = 0.9063078; // cos(25 degrees)
-const float RESTIR_DEPTH_THRESHOLD = 0.05;
-const float RESTIR_MIN_DEPTH_DELTA = 0.25;
-const float RESTIR_VISIBILITY_BIAS = 0.01;
-const float RESTIR_EPS = 1e-6;
 
 float luminance(vec3 color) {
    return dot(color, vec3(0.2126, 0.7152, 0.0722));
+}
+
+float pHatRadiance(vec3 radiance) {
+   vec3 finiteRadiance = (any(isnan(radiance)) || any(isinf(radiance))) ? vec3(0.0) : max(radiance, vec3(0.0));
+   return luminance(finiteRadiance);
+}
+
+float balanceHeuristic(float p_i, float n_i, float p_k, float n_k) {
+   float wi = max(p_i * n_i, 0.0);
+   float wk = max(p_k * n_k, 0.0);
+   float denom = wi + wk;
+   return denom > RESTIR_EPS ? wi / denom : 0.0;
 }
 
 bool validSurface(vec3 normal) {
    return dot(normal, normal) > 0.25;
 }
 
-bool loadSurface(ivec2 coord, out vec3 position, out vec3 normal) {
+bool loadSurface(ivec2 coord, out vec3 position, out vec3 normal, out vec3 albedo) {
    position = texelFetch(colortex6, coord, 0).rgb;
    normal = texelFetch(colortex7, coord, 0).rgb;
+   albedo = max(texelFetch(colortex8, coord, 0).rgb, vec3(0.0));
 
    if (!validSurface(normal)) return false;
 
@@ -51,13 +51,15 @@ bool similarSurface(vec3 centerPos, vec3 centerNormal, vec3 neighborPos, vec3 ne
 
    float centerDepth = length(centerPos);
    float neighborDepth = length(neighborPos);
-   float maxDepthDelta = max(centerDepth * RESTIR_DEPTH_THRESHOLD, RESTIR_MIN_DEPTH_DELTA);
+   float maxDepthDelta = max(max(centerDepth, neighborDepth) * RESTIR_DEPTH_THRESHOLD, RESTIR_MIN_DEPTH_DELTA);
    return abs(centerDepth - neighborDepth) <= maxDepthDelta;
 }
 
-float reuseJacobian(Sample S, vec3 visiblePos) {
+float reuseJacobian(Sample S, vec3 visibleWorldPos) {
+   if (dot(S.samplePointNormal, S.samplePointNormal) <= 0.25) return 1.0;
+
    vec3 originalVector = S.samplePointPos - S.visiblePointPos;
-   vec3 reuseVector = S.samplePointPos - visiblePos;
+   vec3 reuseVector = S.samplePointPos - visibleWorldPos;
    float originalDist2 = dot(originalVector, originalVector);
    float reuseDist2 = dot(reuseVector, reuseVector);
 
@@ -70,35 +72,13 @@ float reuseJacobian(Sample S, vec3 visiblePos) {
 
    if (originalCos <= RESTIR_EPS || reuseCos <= RESTIR_EPS) return 0.0;
 
-   return (reuseCos / originalCos) * (originalDist2 / reuseDist2);
+   float jacobian = (reuseCos / originalCos) * (originalDist2 / reuseDist2);
+   if (isnan(jacobian) || isinf(jacobian)) return 0.0;
+   return clamp(jacobian, 0.0, RESTIR_SPATIAL_JACOBIAN_CLAMP);
 }
 
-float geometricTarget(Sample S, vec3 visiblePos, vec3 visibleNormal) {
-   vec3 toSample = S.samplePointPos - visiblePos;
-   float dist2 = dot(toSample, toSample);
-   if (dist2 <= RESTIR_EPS) return 0.0;
-
-   vec3 wi = toSample * inversesqrt(dist2);
-   float cosTheta = max(dot(visibleNormal, wi), 0.0);
-   if (cosTheta <= 0.0) return 0.0;
-   if (luminance(S.outgoingRadiance) <= RESTIR_EPS) return 0.0;
-
-   return luminance(S.outgoingRadiance) * cosTheta;
-}
-
-vec3 visibilityTint(Sample S, vec3 visiblePos, vec3 visibleNormal) {
-   vec3 toSample = S.samplePointPos - visiblePos;
-   float dist2 = dot(toSample, toSample);
-   if (dist2 <= RESTIR_EPS) return vec3(0.0);
-
-   float dist = sqrt(dist2);
-   vec3 wi = toSample / dist;
-   float maxDist = max(dist - 2.0 * RESTIR_VISIBILITY_BIAS, 0.0);
-   return traceShadowTinted(visiblePos + visibleNormal * RESTIR_VISIBILITY_BIAS, wi, maxDist);
-}
-
-float targetFunction(Sample S, vec3 visiblePos, vec3 visibleNormal, vec3 visibleAlbedo, vec3 tint) {
-   vec3 toSample = S.samplePointPos - visiblePos;
+float targetFunction(Sample S, vec3 visibleWorldPos, vec3 visibleNormal, vec3 visibleAlbedo) {
+   vec3 toSample = S.samplePointPos - visibleWorldPos;
    float dist2 = dot(toSample, toSample);
    if (dist2 <= RESTIR_EPS) return 0.0;
 
@@ -106,54 +86,25 @@ float targetFunction(Sample S, vec3 visiblePos, vec3 visibleNormal, vec3 visible
    float cosTheta = max(dot(visibleNormal, wi), 0.0);
    if (cosTheta <= 0.0) return 0.0;
 
-   return max(luminance(S.outgoingRadiance * tint * visibleAlbedo), 0.0) * cosTheta;
+   return pHatRadiance(S.outgoingRadiance * visibleAlbedo * (cosTheta / RESTIR_PI));
 }
 
-float visibleTarget(Sample S, vec3 visiblePos, vec3 visibleNormal, vec3 visibleAlbedo, out vec3 tint) {
-   float target = geometricTarget(S, visiblePos, visibleNormal);
-   if (target <= 0.0) {
-      tint = vec3(0.0);
-      return 0.0;
-   }
-
-   tint = visibilityTint(S, visiblePos, visibleNormal);
-   float visibility = luminance(tint);
-   if (visibility <= RESTIR_EPS) return 0.0;
-
-   return targetFunction(S, visiblePos, visibleNormal, visibleAlbedo, tint);
-}
-
-float spatialMergeTarget(Sample S, vec3 visiblePos, vec3 visibleNormal, vec3 visibleAlbedo) {
-   vec3 tint;
-   float target = visibleTarget(S, visiblePos, visibleNormal, visibleAlbedo, tint);
+float spatialMergeTarget(Sample S, vec3 visibleWorldPos, vec3 visibleNormal, vec3 visibleAlbedo) {
+   float target = targetFunction(S, visibleWorldPos, visibleNormal, visibleAlbedo);
    if (target <= RESTIR_EPS) return 0.0;
 
-   float jacobian = reuseJacobian(S, visiblePos);
+   float jacobian = reuseJacobian(S, visibleWorldPos);
    if (jacobian <= RESTIR_EPS) return 0.0;
 
-   return target / jacobian;
+   return target * jacobian;
 }
 
-ivec2 sampleSpatialNeighbor(ivec2 coord, ivec2 extent) {
-   float angle = 2.0 * RESTIR_PI * rand();
-   float radius = sqrt(rand()) * RESTIR_SPATIAL_RADIUS;
-   ivec2 offset = ivec2(round(vec2(cos(angle), sin(angle)) * radius));
-
-   if (all(equal(offset, ivec2(0)))) {
-      offset = ivec2(1, 0);
-   }
-
-   return clamp(coord + offset, ivec2(0), extent - ivec2(1));
-}
-
-vec3 estimateContribution(Reservoir reservoir, vec3 visiblePos, vec3 visibleNormal, vec3 visibleAlbedo, vec3 tint) {
-   vec3 toSample = reservoir.z.samplePointPos - visiblePos;
-   float dist2 = dot(toSample, toSample);
-   if (dist2 <= RESTIR_EPS || reservoir.W <= 0.0) return vec3(0.0);
-
-   vec3 wi = toSample * inversesqrt(dist2);
-   float cosTheta = max(dot(visibleNormal, wi), 0.0);
-   return reservoir.z.outgoingRadiance * tint * visibleAlbedo * (cosTheta / RESTIR_PI) * reservoir.W;
+ivec2 sampleSpatialOffset(int sampleIndex, int sampleCount, float radiusOffset, float angleOffset) {
+   const float goldenAngle = 2.39996322972865332;
+   float invCount = 1.0 / float(max(sampleCount, 1));
+   float radius = sqrt((float(sampleIndex) + radiusOffset) * invCount) * RESTIR_SPATIAL_RADIUS;
+   float angle = (float(sampleIndex) + angleOffset) * goldenAngle;
+   return ivec2(round(vec2(cos(angle), sin(angle)) * radius));
 }
 
 void main() {
@@ -162,87 +113,86 @@ void main() {
 
    if (coord.x >= extent.x || coord.y >= extent.y) return;
 
-   vec3 visiblePos;
-   vec3 visibleNormal;
-   if (!loadSurface(coord, visiblePos, visibleNormal)) {
-      imageStore(colorimg5, coord, vec4(0.0, 0.0, 0.0, 1.0));
-      return;
-   }
-   vec3 visibleAlbedo = max(texelFetch(colortex8, coord, 0).rgb, vec3(0.0));
-
    initRNG(coord, frameCounter, randomSeed);
 
-   int temporalSet = frameCounter % 2;
-   Reservoir spatialReservoir = emptyReservoir();
-
-   ivec2 acceptedCoords[RESTIR_SPATIAL_SAMPLES + 1];
-   float acceptedM[RESTIR_SPATIAL_SAMPLES + 1];
-   int acceptedCount = 0;
-
-   Reservoir centerReservoir;
-   getTemporalReservoir(coord, temporalSet, centerReservoir);
-
-   if (centerReservoir.M > 0.0 && centerReservoir.W > 0.0) {
-      Reservoir candidate = centerReservoir;
-      float target = spatialMergeTarget(candidate.z, visiblePos, visibleNormal, visibleAlbedo);
-      if (target > RESTIR_EPS) {
-         mergeReservoirs(spatialReservoir, candidate, target);
-
-         acceptedCoords[acceptedCount] = coord;
-         acceptedM[acceptedCount] = candidate.M;
-         acceptedCount++;
-      }
+   vec3 visiblePos;
+   vec3 visibleNormal;
+   vec3 visibleAlbedo;
+   if (!loadSurface(coord, visiblePos, visibleNormal, visibleAlbedo)) {
+      setSpatialReservoir(coord, emptyReservoir());
+      return;
    }
 
-   for (int i = 0; i < RESTIR_SPATIAL_SAMPLES; i++) {
-      ivec2 neighborCoord = sampleSpatialNeighbor(coord, extent);
+   vec3 visibleWorldPos = visiblePos + cameraPosition;
+
+   Reservoir centerReservoir;
+   getTemporalReservoir(coord, frameCounter % 2, centerReservoir);
+
+   if (centerReservoir.M <= 0.0 || centerReservoir.W <= 0.0) {
+      setSpatialReservoir(coord, emptyReservoir());
+      return;
+   }
+
+   centerReservoir.M = min(centerReservoir.M, RESTIR_SPATIAL_M_CLAMP);
+   float pHatCenter = targetFunction(centerReservoir.z, visibleWorldPos, visibleNormal, visibleAlbedo);
+   if (pHatCenter <= RESTIR_EPS) {
+      setSpatialReservoir(coord, emptyReservoir());
+      return;
+   }
+
+   Reservoir spatialReservoir = emptyReservoir();
+   float weightCenter = 1.0;
+   int validSampleCount = 1;
+   int spatialSampleCount = centerReservoir.M >= RESTIR_SPATIAL_M_CLAMP_HALF
+      ? RESTIR_SPATIAL_SAMPLES_LOW
+      : RESTIR_SPATIAL_SAMPLES_HIGH;
+   float radiusOffset = rand();
+   float angleOffset = rand();
+
+   for (int i = 0; i < spatialSampleCount; i++) {
+      ivec2 offset = sampleSpatialOffset(i, spatialSampleCount, radiusOffset, angleOffset);
+      if (all(equal(offset, ivec2(0)))) continue;
+
+      ivec2 neighborCoord = coord + offset;
+      if (any(lessThan(neighborCoord, ivec2(0))) || any(greaterThanEqual(neighborCoord, extent))) continue;
 
       vec3 neighborPos;
       vec3 neighborNormal;
-      if (!loadSurface(neighborCoord, neighborPos, neighborNormal)) continue;
+      vec3 neighborAlbedo;
+      if (!loadSurface(neighborCoord, neighborPos, neighborNormal, neighborAlbedo)) continue;
       if (!similarSurface(visiblePos, visibleNormal, neighborPos, neighborNormal)) continue;
 
       Reservoir neighborReservoir;
-      getTemporalReservoir(neighborCoord, temporalSet, neighborReservoir);
+      getTemporalReservoir(neighborCoord, frameCounter % 2, neighborReservoir);
       if (neighborReservoir.M <= 0.0 || neighborReservoir.W <= 0.0) continue;
 
       Reservoir candidate = neighborReservoir;
-      float target = spatialMergeTarget(candidate.z, visiblePos, visibleNormal, visibleAlbedo);
-      if (target <= RESTIR_EPS) continue;
-      mergeReservoirs(spatialReservoir, candidate, target);
+      candidate.M = min(candidate.M, RESTIR_SPATIAL_M_CLAMP);
+      vec3 neighborWorldPos = neighborPos + cameraPosition;
 
-      acceptedCoords[acceptedCount] = neighborCoord;
-      acceptedM[acceptedCount] = candidate.M;
-      acceptedCount++;
+      float pHatNeighbor = targetFunction(candidate.z, neighborWorldPos, neighborNormal, neighborAlbedo);
+      float pHatNeighborToCenter = spatialMergeTarget(candidate.z, visibleWorldPos, visibleNormal, visibleAlbedo);
+      float pHatCenterToNeighbor = spatialMergeTarget(centerReservoir.z, neighborWorldPos, neighborNormal, neighborAlbedo);
+
+      float n_k = candidate.M * float(spatialSampleCount);
+      float weightNeighbor = balanceHeuristic(pHatNeighbor, n_k, pHatNeighborToCenter, centerReservoir.M);
+      float centerHeuristic = balanceHeuristic(pHatCenterToNeighbor, n_k, pHatCenter, centerReservoir.M);
+      weightCenter += 1.0 - centerHeuristic;
+
+      mergeReservoir(spatialReservoir, candidate, pHatNeighborToCenter * candidate.W * weightNeighbor);
+      validSampleCount++;
    }
 
-   vec3 selectedTint;
-   float selectedTarget = visibleTarget(spatialReservoir.z, visiblePos, visibleNormal, visibleAlbedo, selectedTint);
+   mergeReservoir(spatialReservoir, centerReservoir, pHatCenter * centerReservoir.W * weightCenter);
 
-   if (spatialReservoir.M <= 0.0 || spatialReservoir.w <= 0.0 || selectedTarget <= RESTIR_EPS) {
-      imageStore(colorimg5, coord, vec4(0.0, 0.0, 0.0, 1.0));
-      return;
-   }
+   spatialReservoir.z.visiblePointPos = visibleWorldPos;
+   spatialReservoir.z.visiblePointNormal = visibleNormal;
 
-   float z = 0.0;
-   for (int i = 0; i < acceptedCount; i++) {
-      vec3 supportPos;
-      vec3 supportNormal;
-      if (!loadSurface(acceptedCoords[i], supportPos, supportNormal)) continue;
-      vec3 supportAlbedo = max(texelFetch(colortex8, acceptedCoords[i], 0).rgb, vec3(0.0));
+   float selectedTarget = targetFunction(spatialReservoir.z, visibleWorldPos, visibleNormal, visibleAlbedo);
+   spatialReservoir.W = (spatialReservoir.M > 0.0 && spatialReservoir.w_sum > 0.0 && selectedTarget > RESTIR_EPS)
+      ? clamp(spatialReservoir.w_sum / (float(validSampleCount) * selectedTarget), 0.0, RESTIR_WEIGHT_CLAMP)
+      : 0.0;
+   if (isnan(spatialReservoir.W) || isinf(spatialReservoir.W)) spatialReservoir.W = 0.0;
 
-      if (targetFunction(spatialReservoir.z, supportPos, supportNormal, supportAlbedo, vec3(1.0)) > RESTIR_EPS) {
-         z += acceptedM[i];
-      }
-   }
-
-   if (z <= 0.0) {
-      imageStore(colorimg5, coord, vec4(0.0, 0.0, 0.0, 1.0));
-      return;
-   }
-
-   spatialReservoir.W = spatialReservoir.w / (z * selectedTarget);
-
-   vec3 estimate = estimateContribution(spatialReservoir, visiblePos, visibleNormal, visibleAlbedo, selectedTint);
-   imageStore(colorimg5, coord, vec4(max(estimate, vec3(0.0)), 1.0));
+   setSpatialReservoir(coord, spatialReservoir);
 }

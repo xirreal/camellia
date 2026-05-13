@@ -1,11 +1,7 @@
-// Multi-scattering LUT builder.
-// Included from a top-level pass file (e.g. setup2.csh) which provides #version.
-
 #include "/lib/atmosphere/params.glsl"
 #include "/lib/atmosphere/density.glsl"
 #include "/lib/atmosphere/sampling.glsl"
 
-// Output LUT: 64x64, see image.multiScatteringImg in shaders.properties.
 const ivec3 workGroups = ivec3(8, 8, 1);
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 

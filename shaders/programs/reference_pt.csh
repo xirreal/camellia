@@ -33,7 +33,7 @@ uniform float near;
 #include "/lib/pt/materials.glsl"
 #include "/lib/pt/brdf.glsl"
 
-const int MAX_BOUNCES = 3;
+const int MAX_BOUNCES = 8;
 const float SHADOW_MAX_DIST = 256.0;
 
 #define DOF_ENABLED
@@ -61,7 +61,6 @@ void main() {
 
    mat4 projInv = control.sceneFrozen == 1u ? control.frozenProjInv : gbufferProjectionInverse;
    mat4 mvInv = control.sceneFrozen == 1u ? control.frozenModelViewInv : gbufferModelViewInverse;
-   // shadowLightPosition: sun by day, moon by night (Iris auto-swaps).
    vec3 lightPos = control.sceneFrozen == 1u ? control.frozenLightPos.xyz : shadowLightPosition;
 
    vec4 clipDir = vec4(ndc, 1.0, 1.0);
@@ -148,14 +147,8 @@ void main() {
    }
    #endif
 
-   // World-space direction toward the active shadow light (frozen-aware).
    vec3 lightDir = normalize((mvInv * vec4(lightPos, 0.0)).xyz);
 
-   // Detect day/night from the world-space sun altitude (camera-orientation
-   // independent). shadowLightPosition switches at the horizon, so the NEE
-   // tint and intensity must follow it. The skyView LUT lookup is also keyed
-   // off this sun direction, so we read the frozen value when frozen to keep
-   // the lookup axis stable during accumulation.
    vec3 sunPosForFrame = control.sceneFrozen == 1u ? control.frozenSunPos.xyz : sunPosition;
    vec3 worldSunDir = normalize((mvInv * vec4(sunPosForFrame, 0.0)).xyz);
    bool isDay = worldSunDir.y >= 0.0;
@@ -165,11 +158,6 @@ void main() {
    TraceResult primaryHit = traceBVH(ro, rd, true);
 
    if (!primaryHit.hit) {
-      // The skyView LUT is azimuthally parameterized around the sun
-      // (its local frame is built from sun_direction in the LUT generator),
-      // so we must sample it with the sun direction even when the active
-      // shadow light is the moon at night. Otherwise the lookup azimuth axis
-      // mismatches the LUT layout and we get harsh banding at sunset.
       vec3 sky = sampleSky(rd, worldSunDir);
 
       vec4 prev = texture(colortex5, rawUV);
@@ -329,7 +317,6 @@ void main() {
             vec3 B, C;
             glassCoeffs_N_BK7(B, C);
             float channelIOR = sellmeierIOR(GLASS_WL_BIN[wl], B, C);
-            // mask is column-normalised so Σmask = (1,1,1); ×N undoes 1/N selection prob.
             vec3 channelMask = GLASS_MASK_BIN[wl] * float(GLASS_BIN_COUNT);
 
             float eta = insideMedium ? (channelIOR / 1.0) : (1.0 / channelIOR);
@@ -403,16 +390,12 @@ void main() {
       bool frontLit = NdotL_direct > 0.0;
       bool backLit = sssAmount > 0.0 && NdotL_direct < 0.0;
 
-      // Lobe-pick probability and multi-scatter compensation factor at NdotV.
       float NdotV = max(dot(N, V), 1e-5);
       vec3 kS;
       vec3 specMSFactor;
       specEnergyTerms(F0, NdotV, roughness, kS, specMSFactor);
       float specularProb = clamp(max(max(kS.r, kS.g), kS.b), 0.05, 0.95);
 
-      // Effective sun-cap solid angle used for both NEE and BRDF→sun MIS.
-      // SSS surfaces widen the cap for softer shadows; the same cap is reused
-      // on the BRDF side so MIS stays consistent.
       #ifdef MC_TEXTURE_FORMAT_LAB_PBR_1_3
       float sunHalfAngle = 0.007 + sssAmount * 0.01;
       #else
@@ -450,8 +433,6 @@ void main() {
          }
 
          if (backLit) {
-            // SSS soft-shadow term — kept outside MIS since the BRDF spec/diffuse
-            // sampling never reaches the back hemisphere for the same surface.
             vec3 sssOrigin = hitPoint - N * shadowBias;
             vec3 shadowTint = traceShadowTinted(sssOrigin, sampleDir, SHADOW_MAX_DIST);
             if (shadowTint != vec3(0.0)) {
@@ -464,7 +445,6 @@ void main() {
          }
       }
 
-      // ---- BRDF lobe sampling (VNDF spec + cosine diffuse) ----
       vec3 L_sample;
       float NdotL_sample;
       float pdfBRDF_marginal;
@@ -475,8 +455,6 @@ void main() {
          L_sample = reflect(-V, H);
          NdotL_sample = dot(N, L_sample);
 
-         // Reject below shading horizon (rare with VNDF) or below geometric
-         // horizon (normal-mapped overhang); otherwise it produces dark fireflies.
          sampleValid = NdotL_sample > 0.0 && dot(N_geom, L_sample) > 0.0;
          if (!sampleValid) break;
 
@@ -484,7 +462,6 @@ void main() {
          float a = max(roughness * roughness, 0.002);
          float a2 = a * a;
 
-         // VNDF-sampled spec BRDF/pdf simplifies to F · G2/G1(V).
          vec3 F = fresnelF82Tint(F0, F82tint, VdotH);
          float lambdaV = smithLambdaGGX(NdotV, a2);
          float lambdaL = smithLambdaGGX(NdotL_sample, a2);
@@ -515,11 +492,6 @@ void main() {
                + (1.0 - specularProb) * pdfDiff;
       }
 
-      // ---- BRDF-side direct sun (MIS partner of NEE) ----
-      // Adds the direct-sun contribution from a BRDF lobe sample that happens
-      // to land on the sun cap. Without this, smooth metals never see the sun
-      // (NEE has near-zero BRDF value at the sun for a sharp lobe, and the
-      // sky LUT carries no sun disk). Balance-heuristic weighted against NEE.
       if (frontLit && dot(L_sample, lightDir) >= sunCosThreshold) {
          vec3 shadowTint = traceShadowTinted(shadowOrigin, L_sample, SHADOW_MAX_DIST);
          if (shadowTint != vec3(0.0)) {

@@ -112,6 +112,11 @@ const uint INVALID_ID = 0xFFFFFFFFu;
 const uint RADIX_BITS = 8u;
 const uint RADIX = 1u << RADIX_BITS;
 const uint WAVE_SIZE = 32u;
+#ifdef MC_GL_VENDOR_AMD
+#define HPLOC_WG_SIZE 64
+#else
+#define HPLOC_WG_SIZE 32
+#endif
 const uint SORT_WG_SIZE = 256u;
 const uint SORT_MAX_WORKGROUPS = (MAX_QUAD_COUNT + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
 const uint SORT_RADIX_MASK = RADIX - 1u;

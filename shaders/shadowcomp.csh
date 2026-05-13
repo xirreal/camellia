@@ -25,7 +25,7 @@ void main() {
 
    control.sortTotal = numQuads;
 
-   uint hplocWGs = (numQuads + uint(WAVE_SIZE) - 1u) / uint(WAVE_SIZE);
+   uint hplocWGs = (numQuads + uint(HPLOC_WG_SIZE) - 1u) / uint(HPLOC_WG_SIZE);
    control.hplocDispatchX = hplocWGs;
    control.hplocDispatchY = 1u;
    control.hplocDispatchZ = 1u;

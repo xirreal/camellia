@@ -14,21 +14,6 @@ float rayIntersectSphere(vec3 ro, vec3 rd, float rad) {
    return -b - sqrt(discr);
 }
 
-// Manual bilinear filter. Iris binds custom-image samplers as GL_NEAREST for
-// rgba32f LUTs, so we have to interpolate ourselves to avoid stepped bands
-// in the transmittance / multi-scattering / sky-view lookups.
-//
-// wrapU = true  -> wrap U (azimuthal LUTs - sample mirrors from the
-//                  opposite side of the LUT across the seam, since the
-//                  azimuth is a periodic projection)
-// wrapU = false -> clamp U
-// V is always clamped (zenith / altitude axis).
-//
-// NOTE: GLSL's `%` operator is *undefined* for negative operands, so we
-// must not use it here. p00.x can legitimately be -1 (when uv.x is in the
-// half-pixel before the first texel), and p10.x can legitimately be size.x
-// (when uv.x is in the half-pixel after the last texel). Use explicit
-// branches for guaranteed wrap on every driver.
 int _wrapIndex(int p, int size) {
    if (p < 0) return p + size;
    if (p >= size) return p - size;
@@ -72,18 +57,14 @@ vec3 _bilinearSample(sampler2D lut, vec2 uv, bool wrapU) {
    return mix(c0, c1, f.y);
 }
 
-// Internal: sample transmittance LUT for a position known to be inside the atmosphere
 vec3 _sampleTransmittanceLUTInner(sampler2D lut, float height, float sunCosZenithAngle) {
    vec2 uv = vec2(
-      clamp(0.5 + 0.5 * sunCosZenithAngle, 0.0, 1.0),
-      max(0.0, min(1.0, (height - ATM_GROUND_RADIUS) / (ATM_TOP_RADIUS - ATM_GROUND_RADIUS)))
-   );
+         clamp(0.5 + 0.5 * sunCosZenithAngle, 0.0, 1.0),
+         max(0.0, min(1.0, (height - ATM_GROUND_RADIUS) / (ATM_TOP_RADIUS - ATM_GROUND_RADIUS)))
+      );
    return _bilinearSample(lut, uv, false);
 }
 
-// Sample transmittance LUT
-// pos: position in atmosphere (meters from planet center as vec3)
-// sunDir: direction to sun
 vec3 sampleTransmittanceLUT(sampler2D lut, vec3 pos, vec3 sunDir) {
    float height = length(pos);
    vec3 up = pos / height;
@@ -101,8 +82,6 @@ vec3 sampleTransmittanceLUT(sampler2D lut, vec3 pos, vec3 sunDir) {
    return _sampleTransmittanceLUTInner(lut, height, sunCosZenithAngle);
 }
 
-// Sample transmittance for a view direction from observer position
-// viewDir: normalized view direction in Y-up world space
 vec3 sampleTransmittanceForView(sampler2D lut, vec3 viewDir) {
    float height = length(ATM_OBSERVER_POS);
 
@@ -120,7 +99,6 @@ vec3 sampleTransmittanceForView(sampler2D lut, vec3 viewDir) {
    return _sampleTransmittanceLUTInner(lut, height, cosAngle);
 }
 
-// Sample multi-scattering LUT
 vec3 sampleMultiScatteringLUT(sampler2D lut, vec3 pos, vec3 sunDir) {
    float height = length(pos);
    vec3 up = pos / height;
@@ -137,16 +115,15 @@ vec3 sampleMultiScatteringLUT(sampler2D lut, vec3 pos, vec3 sunDir) {
    }
 
    vec2 uv = vec2(
-      clamp(0.5 + 0.5 * sunCosZenithAngle, 0.0, 1.0),
-      max(0.0, min(1.0, (height - ATM_GROUND_RADIUS) / (ATM_TOP_RADIUS - ATM_GROUND_RADIUS)))
-   );
+         clamp(0.5 + 0.5 * sunCosZenithAngle, 0.0, 1.0),
+         max(0.0, min(1.0, (height - ATM_GROUND_RADIUS) / (ATM_TOP_RADIUS - ATM_GROUND_RADIUS)))
+      );
    return _bilinearSample(lut, uv, false);
 }
 
 // Sample sky-view LUT
-// rayDir: normalized view direction
-// sunDir: normalized sun direction
-// Both in Y-up world space
+// rayDir: normalized worldspace view direction
+// sunDir: normalized worldspace sun direction
 vec3 sampleSkyViewLUT(sampler2D lut, vec3 rayDir, vec3 sunDir) {
    float height = length(ATM_OBSERVER_POS);
    vec3 up = ATM_OBSERVER_POS / height;

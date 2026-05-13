@@ -28,7 +28,7 @@ void getScatteringValues(vec3 pos,
    mieScattering = MIE_SCATTERING_BASE * mieDensity;
    float mieAbsorption = MIE_ABSORPTION_BASE * mieDensity;
 
-   // Ozone: triangular/tent profile centered in the ozone layer
+   // tent profile like ARPC coeffs
    float ozoneCenter = OZONE_BASE_HEIGHT + OZONE_LAYER_THICKNESS * 0.5;
    float ozoneHalfWidth = OZONE_LAYER_THICKNESS * 0.5;
    vec3 ozoneAbsorption = OZONE_ABSORPTION * max(0.0, 1.0 - abs(altitudeM - ozoneCenter) / ozoneHalfWidth);
@@ -36,8 +36,6 @@ void getScatteringValues(vec3 pos,
    extinction = rayleighScattering + rayleighAbsorption + mieScattering + mieAbsorption + ozoneAbsorption;
 }
 
-// Airglow: self-emission from chemiluminescent layers
-// Returns spectral radiance contribution (W/m³/sr) as RGB
 vec3 getAirglowEmission(vec3 pos) {
    float altitudeM = length(pos) - ATM_GROUND_RADIUS;
 
@@ -49,9 +47,5 @@ vec3 getAirglowEmission(vec3 pos) {
          + AIRGLOW_NA_VER * exp(-0.5 * dNa * dNa) * AIRGLOW_NA_COLOR
          + AIRGLOW_OH_VER * exp(-0.5 * dOH * dOH) * AIRGLOW_OH_COLOR;
 
-   // The base VER values are physical (W/m^3/sr) and very small relative to
-   // the SUN_ILLUMINANCE-driven scattering in the LUT. A modest boost keeps
-   // airglow faintly visible at night without letting the deep-red OH band
-   // dominate moon-lit Rayleigh scattering and turn the entire night sky red.
-   return emission * 50.0;
+   return emission;
 }

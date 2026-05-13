@@ -6,10 +6,6 @@
 - After editing a shader, `POST /reload` then `GET /errors`. Use `POST /screenshot` + `GET /screenshot/result` to verify visuals.
 - If required, `POST /ssbo?index=N&format=uint` to dump SSBOs for debugging
 
-## Architecture
-Pipeline order: `setup.csh` (once) → shadow pass (`shadow_{solid,block,entities,cutout,water}.{vsh,fsh}` capture geometry into SSBOs; `shadow.{vsh,gsh,fsh}` is fallback) → `begin.csh` (per-frame reset; freezes when `hideGUI`) → `prepare.csh`+`prepare2..13.csh` + `prepare99.csh` (Morton codes + 8.5-pass radix sort, indirectly dispatched) → `composite.csh` (H-PLOC BVH2 build) → `composite1.csh` (optional quad validation) → `composite10.csh` (main path tracer, accumulate radiance) → `composite99.csh` (AgX tonemap + debug HUD).
-Libs in `shaders/lib/`: `storage.glsl` (extensions, shared structs/constants, pure helpers), `buffers/*.glsl` (one SSBO declaration per binding with overridable qualifier macros), `quad-read.glsl`/`quad-write.glsl`, `scene-read.glsl`/`scene-bounds.glsl`, `hploc.glsl` (buffer-independent H-PLOC IDs/math), `hploc-build.glsl` (buffer-dependent BVH build helpers), `sort.glsl` (parameterized by `SORT_PASS`/`SORT_PHASE`), `raytrace.glsl`, `encoding.glsl`, `textures.glsl`, `text-rendering.glsl`, `agx.glsl`. SSBO bindings 0–10: QuadData, Control, AABB, Morton, ClusterIndex, ParentID, BVH2Node, SortScratch, TextureInfos, TextureData, QuadPos. All geometry is in **player space**.
-
 ## Style & Conventions
 - GLSL `#version 460` (or `460 compatibility` for raster). Iris features: `COMPUTE_SHADERS SSBO REVERSED_CULLING`. Required: `GL_KHR_shader_subgroup_*`. Wave size assumed 32.
 - Includes use shaderpack-absolute paths: `#include "/lib/storage.glsl"`. Include guards: `#ifndef X_INCLUDE_GUARD / #define X_INCLUDE_GUARD`. Never put `#extension` in individual files — they live in `storage.glsl`.

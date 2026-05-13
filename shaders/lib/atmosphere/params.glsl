@@ -8,14 +8,9 @@ const float PI = 3.14159265358979323846;
 const float ATM_GROUND_RADIUS = 6360e3;
 const float ATM_TOP_RADIUS = 6460e3;
 
-// Iris uniform: world-space camera position. The atmosphere model uses the
-// player's Y coordinate (in meters above sea level / Minecraft origin) as the
-// observer height above the planet ground.
 uniform vec3 cameraPosition;
 #define ATM_OBSERVER_POS vec3(0.0, ATM_GROUND_RADIUS + cameraPosition.y + 500.0, 0.0)
 
-// Light sources reaching the top of the atmosphere.
-// Hillaire-style values: sun in MJ/m^2/sr range, moon ~1/40000th of the sun.
 const vec3 SUN_ILLUMINANCE = vec3(20.0);
 const vec3 MOON_ILLUMINANCE = vec3(0.1);
 
@@ -61,6 +56,6 @@ const vec3 AIRGLOW_NA_COLOR = vec3(1.0, 0.3515, 0.0); // 589.3nm spectral amber
 const float AIRGLOW_OH_PEAK_HEIGHT = 87000.0;
 const float AIRGLOW_OH_SIGMA = 4000.0;
 const float AIRGLOW_OH_VER = 3.240e-11; // W/m³/sr
-const vec3 AIRGLOW_OH_COLOR = vec3(0.6, 0.2, 0.0); // ~730nm effective deep red
+const vec3 AIRGLOW_OH_COLOR = vec3(0.8, 0.1, 0.03); // ~730nm effective deep red
 
 #endif

@@ -33,8 +33,7 @@ float pow5(float x) {
 
 // Fresnel for the Adobe Standard Material's "F82-tint" metallic model.
 // See "Novel aspects of the Adobe Standard Material" (Kutz, Hasan, Edmondson, 2023), section 2.
-// When F82_tint == vec3(1.0) this reduces exactly to the standard Schlick
-// approximation, so the same function is used for dielectrics as well.
+// when F82_tint == vec3(1.0) reduces to schlick
 vec3 fresnelF82Tint(vec3 F0, vec3 F82tint, float cosTheta) {
    const float cosThetaMax = 1.0 / 7.0;
    const float oneMinusCosThetaMax = 1.0 - cosThetaMax;
@@ -107,7 +106,7 @@ vec3 sampleGGXVNDFIsotropic(vec3 Ve, float a, float r1, float r2) {
    return normalize(vec3(a * Nh.x, a * Nh.y, max(1e-5, Nh.z)));
 }
 
-// World-space convenience: sample a half-vector from VNDF given world-space N,V.
+// Sample a half-vector from VNDF given world-space N,V.
 vec3 sampleGGXHalfWorld(vec3 N, vec3 V, float roughness) {
    float a = max(roughness * roughness, 0.002);
    vec3 up = abs(N.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
@@ -186,9 +185,7 @@ vec3 evalBRDF(vec3 N, vec3 V, vec3 L, vec3 albedo, float roughness, float metall
    vec3 specTerm = specSS * specMSFactor;
 
    // Energy-conserving diffuse: the energy that did not leave through the spec
-   // lobe (1 - kS) is available for diffuse. This is the practical Karis-Ess
-   // approximation of the Ashikhmin-Premoze-Shirley separable diffuse term;
-   // the full reciprocal form would require precomputed L(wi) and T tables.
+   // lobe (1 - kS) is available for diffuse. Karis-Ess approximation of the Ashikhmin-Premoze-Shirley separable diffuse term
    vec3 diffuseColor = albedo * (1.0 - metallic);
    vec3 diffTerm = diffuseHammon(diffuseColor, roughness, NdotV, NdotL, LdotH) * (vec3(1.0) - kS);
 
