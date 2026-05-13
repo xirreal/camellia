@@ -17,6 +17,9 @@ uniform mat4 gbufferPreviousProjection;
 uniform int randomSeed;
 uniform int frameCounter;
 
+uniform sampler2D normalAtlas;
+uniform sampler2D specularAtlas;
+
 #include "/lib/core/storage.glsl"
 #define CONTROL_BUFFER_QUALIFIERS restrict readonly
 #include "/lib/bvh/raytrace.glsl"

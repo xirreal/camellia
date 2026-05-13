@@ -14,6 +14,8 @@ uniform int randomSeed;
 uniform int frameCounter;
 
 uniform sampler2D blockAtlas;
+uniform sampler2D normalAtlas;
+uniform sampler2D specularAtlas;
 
 #include "/lib/core/storage.glsl"
 #include "/lib/core/encoding.glsl"

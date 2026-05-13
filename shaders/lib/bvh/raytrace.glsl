@@ -189,6 +189,70 @@ vec4 sampleQuadTexture(QuadData qd, vec2 uv) {
    #endif
 }
 
+float raytraceLabPBREmission(vec4 specularSample) {
+   return (specularSample.a >= (254.5 / 255.0)) ? 0.0 : specularSample.a;
+}
+
+float raytraceEmissionRadiance(float emission) {
+   return emission * 20.0;
+}
+
+float raytraceFallbackEmission(vec3 linearAlbedo, float vertexEmission) {
+   return pow(length(linearAlbedo * 1.5), 2.2) * vertexEmission * 0.2;
+}
+
+vec3 raytraceSafeTangent(vec3 normal, vec3 tangent) {
+   tangent -= normal * dot(normal, tangent);
+   if (dot(tangent, tangent) <= 1e-8) {
+      vec3 up = abs(normal.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+      tangent = cross(up, normal);
+   }
+   return normalize(tangent);
+}
+
+void computeRaytraceTangentBasis(QuadData qd, vec3 p0, vec3 p1, vec3 p2, vec3 p3, int triIndex, vec3 geomNormal, out vec3 tangent, out vec3 bitangent) {
+   vec3 tp0 = p0;
+   vec3 tp1 = (triIndex == 0) ? p1 : p2;
+   vec3 tp2 = (triIndex == 0) ? p2 : p3;
+
+   vec2 uv0 = qdUV(qd, 0u);
+   vec2 uv1 = (triIndex == 0) ? qdUV(qd, 1u) : qdUV(qd, 2u);
+   vec2 uv2 = (triIndex == 0) ? qdUV(qd, 2u) : qdUV(qd, 3u);
+
+   vec3 edge1 = tp1 - tp0;
+   vec3 edge2 = tp2 - tp0;
+   vec2 dUV1 = uv1 - uv0;
+   vec2 dUV2 = uv2 - uv0;
+
+   float denom = dUV1.x * dUV2.y - dUV1.y * dUV2.x;
+   float handedness = (denom < 0.0) ? -1.0 : 1.0;
+   vec3 rawTangent = (abs(denom) > 1e-8) ? (edge1 * dUV2.y - edge2 * dUV1.y) / denom : vec3(1.0, 0.0, 0.0);
+   tangent = raytraceSafeTangent(geomNormal, rawTangent);
+   bitangent = normalize(cross(geomNormal, tangent)) * handedness;
+}
+
+vec3 decodeRaytraceLabPBRNormal(vec4 normalSample, vec3 geomNormal, vec3 tangent, vec3 bitangent) {
+   vec2 nxy = normalSample.rg * 2.0 - 1.0;
+   vec3 tangentNormal = normalize(vec3(nxy, sqrt(max(1.0 - dot(nxy, nxy), 0.00001))));
+   return normalize(tangent * tangentNormal.x + bitangent * tangentNormal.y + geomNormal * tangentNormal.z);
+}
+
+bool sampleRaytraceLabPBR(uint textureID, vec2 uv, out vec4 normalSample, out vec4 specularSample) {
+   if (textureID == 0u) {
+      normalSample = texture(normalAtlas, uv);
+      specularSample = texture(specularAtlas, uv);
+      return true;
+   }
+
+   #ifdef ENTITY_PBR
+   normalSample = sampleEntityNormal(textureID, uv);
+   specularSample = sampleEntitySpecular(textureID, uv);
+   return true;
+   #else
+   return false;
+   #endif
+}
+
 bool quadAlphaSkipsIntersection(QuadData qd, vec2 bary, int triIndex) {
    #ifdef ALPHA_TEST
    bool alphaTested = qdAlphaTested(qd);
@@ -473,10 +537,25 @@ RestirTraceResult traceBVHRestir(vec3 ro, vec3 rd, bool skipPlayer) {
       res.normal = n;
 
       vec2 uv = interpolateUV(qd, hitBary, hitTri);
-      vec3 albedo = sampleQuadTexture(qd, uv).rgb;
+      vec3 albedo = sampleQuadTexture(qd, uv).rgb * interpolateTint(qd, hitBary, hitTri);
       res.albedo = pow(albedo, vec3(2.2));
-      float t = length(albedo * 1.5);
-      res.emission = t * t * qdEmission(qd) * 0.2;
+      #ifdef MC_TEXTURE_FORMAT_LAB_PBR_1_3
+      res.emission = 0.0;
+      #else
+      res.emission = raytraceFallbackEmission(res.albedo, qdEmission(qd));
+      #endif
+
+      vec4 normalSample;
+      vec4 specularSample;
+      if (sampleRaytraceLabPBR(qd.textureID, uv, normalSample, specularSample)) {
+         vec3 tangent;
+         vec3 bitangent;
+         computeRaytraceTangentBasis(qd, p0, p1, p2, p3, hitTri, n, tangent, bitangent);
+         res.normal = decodeRaytraceLabPBRNormal(normalSample, n, tangent, bitangent);
+         #ifdef MC_TEXTURE_FORMAT_LAB_PBR_1_3
+         res.emission = raytraceEmissionRadiance(raytraceLabPBREmission(specularSample));
+         #endif
+      }
    } else {
       res.normal = vec3(0.0);
       res.albedo = vec3(0.0);

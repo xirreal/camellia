@@ -8,6 +8,8 @@ uniform sampler2D colortex6;
 uniform sampler2D colortex7;
 uniform sampler2D colortex8;
 uniform sampler2D blockAtlas;
+uniform sampler2D normalAtlas;
+uniform sampler2D specularAtlas;
 uniform float viewWidth;
 uniform float viewHeight;
 uniform mat4 gbufferProjectionInverse;
@@ -61,16 +63,8 @@ vec3 estimateDirectSun(vec3 visiblePos, vec3 visibleNormal, vec3 visibleAlbedo, 
       * shadowTint;
 }
 
-vec3 estimatePrimaryEmission(vec3 rayOrigin, vec3 rayDirection, vec3 visiblePos, vec3 visibleAlbedo) {
-   TraceResult hit = traceBVH(rayOrigin, rayDirection, true);
-   if (!hit.hit) return vec3(0.0);
-
-   float expectedDist = length(visiblePos - rayOrigin);
-   float maxDistDelta = max(expectedDist * 0.02, 0.25);
-   if (abs(hit.t - expectedDist) > maxDistDelta) return vec3(0.0);
-
-   float emission = pow(length(visibleAlbedo * 1.5), 2.2) * hit.vertexData.a * 0.2;
-   return visibleAlbedo * emission;
+vec3 estimatePrimaryEmission(vec3 visibleAlbedo, float visibleEmission) {
+   return visibleAlbedo * visibleEmission;
 }
 
 float luminance(vec3 color) {
@@ -81,8 +75,10 @@ bool validSurface(vec3 normal) {
    return dot(normal, normal) > 0.25;
 }
 
-bool loadSurface(ivec2 coord, out vec3 position, out vec3 normal, out vec3 albedo) {
-   position = texelFetch(colortex6, coord, 0).rgb;
+bool loadSurface(ivec2 coord, out vec3 position, out vec3 normal, out vec3 albedo, out float emission) {
+   vec4 positionEmission = texelFetch(colortex6, coord, 0);
+   position = positionEmission.rgb;
+   emission = positionEmission.a;
    normal = texelFetch(colortex7, coord, 0).rgb;
    albedo = max(texelFetch(colortex8, coord, 0).rgb, vec3(0.0));
 
@@ -129,20 +125,20 @@ void main() {
    initRNG(coord, frameCounter, randomSeed);
 
    vec3 viewDir = viewRayDirection(coord);
-   vec3 rayOrigin = gbufferModelViewInverse[3].xyz;
    vec3 sunDirection = normalize((mat3(gbufferModelViewInverse) * sunPosition).xyz);
 
    vec3 visiblePos;
    vec3 visibleNormal;
    vec3 visibleAlbedo;
-   if (!loadSurface(coord, visiblePos, visibleNormal, visibleAlbedo)) {
+   float visibleEmission;
+   if (!loadSurface(coord, visiblePos, visibleNormal, visibleAlbedo, visibleEmission)) {
       imageStore(colorimg5, coord, vec4(sampleSky(viewDir, sunDirection), 1.0));
       return;
    }
 
    vec3 visibleWorldPos = visiblePos + cameraPosition;
    vec3 appliedRadiance = estimateDirectSun(visiblePos, visibleNormal, visibleAlbedo, sunDirection)
-      + estimatePrimaryEmission(rayOrigin, viewDir, visiblePos, visibleAlbedo);
+         + estimatePrimaryEmission(visibleAlbedo, visibleEmission);
 
    Reservoir reservoir;
    getSpatialReservoir(coord, reservoir);
