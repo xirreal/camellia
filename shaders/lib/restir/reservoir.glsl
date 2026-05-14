@@ -18,6 +18,7 @@ struct Reservoir {
    float w_sum;
    float M;
    float W;
+   float age;
 };
 
 struct PackedReservoir {
@@ -87,7 +88,7 @@ PackedReservoir packReservoir(Reservoir reservoir) {
    return PackedReservoir(
       vec4(reservoir.z.outgoingRadiance, uintBitsToFloat(packHalf2x16(weights))),
       vec4(reservoir.z.samplePointPos, uintBitsToFloat(restirPackNormalAge(reservoir.z.samplePointNormal, reservoir.M))),
-      vec4(reservoir.z.visiblePointPos, uintBitsToFloat(restirPackNormalAge(reservoir.z.visiblePointNormal, 0.0)))
+      vec4(reservoir.z.visiblePointPos, uintBitsToFloat(restirPackNormalAge(reservoir.z.visiblePointNormal, reservoir.age)))
    );
 }
 
@@ -99,8 +100,8 @@ Reservoir unpackReservoir(PackedReservoir packedReservoir) {
    restirUnpackNormalAge(floatBitsToUint(packedReservoir.r1.w), sampleNormal, M);
 
    vec3 visibleNormal;
-   float unusedAge;
-   restirUnpackNormalAge(floatBitsToUint(packedReservoir.r2.w), visibleNormal, unusedAge);
+   float age;
+   restirUnpackNormalAge(floatBitsToUint(packedReservoir.r2.w), visibleNormal, age);
    Sample unpackedSample = Sample(
       packedReservoir.r2.xyz,
       visibleNormal,
@@ -110,10 +111,10 @@ Reservoir unpackReservoir(PackedReservoir packedReservoir) {
       weights.y
    );
 
-   return Reservoir(unpackedSample, weights.x, M, weights.y);
+   return Reservoir(unpackedSample, weights.x, M, weights.y, age);
 }
 
-void updateReservoir(inout Reservoir reservoir, Sample Snew, float Wnew) {
+void updateReservoir(inout Reservoir reservoir, Sample Snew, float Wnew, float age) {
    reservoir.M = reservoir.M + 1;
    if (Wnew <= 0.0 || isnan(Wnew) || isinf(Wnew)) return;
 
@@ -123,6 +124,7 @@ void updateReservoir(inout Reservoir reservoir, Sample Snew, float Wnew) {
    reservoir.w_sum = newWeightSum;
    if (rand() < Wnew / reservoir.w_sum) {
       reservoir.z = Snew;
+      reservoir.age = age;
    }
 }
 
@@ -130,7 +132,7 @@ void mergeReservoirs(inout Reservoir reservoir1, inout Reservoir reservoir2, flo
    if (reservoir2.M <= 0.0 || reservoir2.W <= 0.0 || p < 0.0 || isnan(p) || isinf(p)) return;
 
    float M0 = reservoir1.M;
-   updateReservoir(reservoir1, reservoir2.z, p * reservoir2.W * reservoir2.M);
+   updateReservoir(reservoir1, reservoir2.z, p * reservoir2.W * reservoir2.M, reservoir2.age);
    reservoir1.M = M0 + reservoir2.M;
 }
 
@@ -148,6 +150,7 @@ bool mergeReservoir(inout Reservoir reservoir, Reservoir candidate, float weight
    bool selected = rand() * reservoir.w_sum <= weight;
    if (selected) {
       reservoir.z = candidate.z;
+      reservoir.age = candidate.age;
    }
 
    return selected;
@@ -156,7 +159,7 @@ bool mergeReservoir(inout Reservoir reservoir, Reservoir candidate, float weight
 Reservoir emptyReservoir() {
    return Reservoir(
       Sample(vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), 0.0),
-      0.0, 0.0, 0.0
+      0.0, 0.0, 0.0, 0.0
    );
 }
 
@@ -177,7 +180,7 @@ int temporalReservoirIndex(ivec2 coord, int temporalSet) {
 }
 
 void insertInitialSample(ivec2 coord, Sample Snew) {
-   reservoirs[reservoirCoordIndex(coord)] = packReservoir(Reservoir(Snew, 0.0, 1.0, Snew.samplePdf));
+   reservoirs[reservoirCoordIndex(coord)] = packReservoir(Reservoir(Snew, 0.0, 1.0, Snew.samplePdf, 0.0));
 }
 
 void getInitialSample(ivec2 coord, out Sample S) {

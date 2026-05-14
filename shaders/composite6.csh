@@ -14,6 +14,7 @@ uniform int frameCounter;
 
 #include "/lib/core/storage.glsl"
 #include "/lib/restir/reservoir.glsl"
+#include "/lib/restir/reuse_cells.glsl"
 
 float luminance(vec3 color) {
    return dot(color, vec3(0.2126, 0.7152, 0.0722));
@@ -92,245 +93,113 @@ float spatialMergeTarget(Sample S, vec3 visibleWorldPos, vec3 visibleNormal, vec
    return target * jacobian;
 }
 
-ivec2 sampleSpatialOffset(int sampleIndex, int sampleCount, float radiusOffset, float angleOffset) {
-   const float goldenAngle = 2.39996322972865332;
-   float invCount = 1.0 / float(max(sampleCount, 1));
-   float radius = sqrt((float(sampleIndex) + radiusOffset) * invCount) * RESTIR_SPATIAL_RADIUS;
-   float angle = (float(sampleIndex) + angleOffset) * goldenAngle;
-   return ivec2(round(vec2(cos(angle), sin(angle)) * radius));
+ivec2 sampleSearchCoord(ivec2 coord, ivec2 extent, float radius) {
+   float angle = rand() * (2.0 * RESTIR_PI);
+   float distance = sqrt(rand()) * radius;
+   ivec2 offset = ivec2(round(vec2(cos(angle), sin(angle)) * distance));
+   return clamp(coord + offset, ivec2(0), extent - ivec2(1));
 }
 
-bool loadSpatialSupportDomain(
+bool sampleNeighborCell(
       ivec2 coord,
       ivec2 extent,
       vec3 visiblePos,
       vec3 visibleNormal,
-      int temporalSet,
-      int candidateIndex,
-      float radiusOffset,
-      float angleOffset,
-      out Reservoir candidate,
-      out vec3 neighborWorldPos,
-      out vec3 neighborNormal,
-      out vec3 neighborAlbedo,
-      out float confidence) {
-   ivec2 offset = sampleSpatialOffset(candidateIndex, RESTIR_SPATIAL_CANDIDATE_COUNT, radiusOffset, angleOffset);
-   if (all(equal(offset, ivec2(0)))) return false;
-
-   ivec2 neighborCoord = coord + offset;
-   if (any(lessThan(neighborCoord, ivec2(0))) || any(greaterThanEqual(neighborCoord, extent))) return false;
-
-   vec3 neighborPos;
-   if (!loadSurface(neighborCoord, neighborPos, neighborNormal, neighborAlbedo)) return false;
-   if (!similarSurface(visiblePos, visibleNormal, neighborPos, neighborNormal)) return false;
-
-   getTemporalReservoir(neighborCoord, temporalSet, candidate);
-   if (candidate.M <= 0.0 || isnan(candidate.M) || isinf(candidate.M)) {
-      return false;
-   }
-
-   candidate.M = min(candidate.M, RESTIR_SPATIAL_M_CLAMP);
-   confidence = candidate.M;
-   if (confidence <= RESTIR_EPS) return false;
-
-   neighborWorldPos = neighborPos + cameraPosition;
-
-   return true;
-}
-
-bool loadSpatialCandidate(
-      ivec2 coord,
-      ivec2 extent,
-      vec3 visiblePos,
-      vec3 visibleNormal,
-      int temporalSet,
-      int candidateIndex,
-      float radiusOffset,
-      float angleOffset,
-      out Reservoir candidate,
-      out vec3 neighborWorldPos,
-      out vec3 neighborNormal,
-      out vec3 neighborAlbedo,
-      out float confidence,
-      out float sourceTarget,
-      out float selectionWeight) {
-   if (!loadSpatialSupportDomain(coord, extent, visiblePos, visibleNormal, temporalSet, candidateIndex, radiusOffset, angleOffset,
-         candidate, neighborWorldPos, neighborNormal, neighborAlbedo, confidence)) {
-      return false;
-   }
-
-   if (candidate.W <= 0.0 || isnan(candidate.W) || isinf(candidate.W)) return false;
-
-   sourceTarget = targetFunction(candidate.z, neighborWorldPos, neighborNormal, neighborAlbedo);
-   selectionWeight = sourceTarget > RESTIR_EPS ? confidence * sourceTarget * candidate.W : 0.0;
-   if (isnan(selectionWeight) || isinf(selectionWeight)) selectionWeight = 0.0;
-
-   return true;
-}
-
-void gatherSpatialCandidateStats(
-      ivec2 coord,
-      ivec2 extent,
-      vec3 visiblePos,
-      vec3 visibleNormal,
-      int temporalSet,
-      float radiusOffset,
-      float angleOffset,
-      out float confidenceSum,
-      out float selectionWeightSum,
-      out int supportDomainCount) {
-   confidenceSum = 0.0;
-   selectionWeightSum = 0.0;
-   supportDomainCount = 0;
-
-   for (int i = 0; i < RESTIR_SPATIAL_CANDIDATE_COUNT; i++) {
-      Reservoir candidate;
-      vec3 neighborWorldPos;
-      vec3 neighborNormal;
-      vec3 neighborAlbedo;
-      float confidence;
-      float sourceTarget;
-      float selectionWeight;
-
-      if (!loadSpatialSupportDomain(coord, extent, visiblePos, visibleNormal, temporalSet, i, radiusOffset, angleOffset,
-            candidate, neighborWorldPos, neighborNormal, neighborAlbedo, confidence)) {
-         continue;
-      }
-
-      confidenceSum += confidence;
-      supportDomainCount++;
-
-      if (candidate.W <= 0.0 || isnan(candidate.W) || isinf(candidate.W)) continue;
-
-      sourceTarget = targetFunction(candidate.z, neighborWorldPos, neighborNormal, neighborAlbedo);
-      selectionWeight = sourceTarget > RESTIR_EPS ? confidence * sourceTarget * candidate.W : 0.0;
-      if (isnan(selectionWeight) || isinf(selectionWeight)) selectionWeight = 0.0;
-      selectionWeightSum += selectionWeight;
-   }
-}
-
-bool getSpatialSupportDomainByRank(
-      ivec2 coord,
-      ivec2 extent,
-      vec3 visiblePos,
-      vec3 visibleNormal,
-      int temporalSet,
-      float radiusOffset,
-      float angleOffset,
-      int targetRank,
-      out Reservoir selectedCandidate,
-      out vec3 selectedWorldPos,
-      out vec3 selectedNormal,
-      out vec3 selectedAlbedo,
-      out float selectedConfidence) {
-   int rank = 0;
-
-   for (int i = 0; i < RESTIR_SPATIAL_CANDIDATE_COUNT; i++) {
-      Reservoir candidate;
-      vec3 neighborWorldPos;
-      vec3 neighborNormal;
-      vec3 neighborAlbedo;
-      float confidence;
-
-      if (!loadSpatialSupportDomain(coord, extent, visiblePos, visibleNormal, temporalSet, i, radiusOffset, angleOffset,
-            candidate, neighborWorldPos, neighborNormal, neighborAlbedo, confidence)) {
-         continue;
-      }
-
-      if (rank == targetRank) {
-         selectedCandidate = candidate;
-         selectedWorldPos = neighborWorldPos;
-         selectedNormal = neighborNormal;
-         selectedAlbedo = neighborAlbedo;
-         selectedConfidence = confidence;
-         return true;
-      }
-
-      rank++;
-   }
-
-   return false;
-}
-
-bool sampleSpatialCandidateByWeight(
-      ivec2 coord,
-      ivec2 extent,
-      vec3 visiblePos,
-      vec3 visibleNormal,
-      int temporalSet,
-      float radiusOffset,
-      float angleOffset,
-      float selectionWeightSum,
-      out Reservoir selectedCandidate,
-      out vec3 selectedWorldPos,
-      out vec3 selectedNormal,
-      out vec3 selectedAlbedo,
-      out float selectedConfidence,
-      out float selectedSourceTarget,
-      out float selectedSelectionWeight) {
-   if (selectionWeightSum <= RESTIR_EPS) return false;
-
-   float threshold = rand() * selectionWeightSum;
-   float accumulated = 0.0;
+      out uint selectedCell) {
+   selectedCell = INVALID_ID;
+   float radius = RESTIR_REUSE_CELL_SEARCH_RADIUS;
+   float weightSum = 0.0;
    bool found = false;
-   bool hasFallback = false;
 
-   Reservoir fallbackCandidate = emptyReservoir();
-   vec3 fallbackWorldPos = vec3(0.0);
-   vec3 fallbackNormal = vec3(0.0);
-   vec3 fallbackAlbedo = vec3(0.0);
-   float fallbackConfidence = 0.0;
-   float fallbackSourceTarget = 0.0;
-   float fallbackSelectionWeight = 0.0;
+   for (int i = 0; i < RESTIR_REUSE_CELL_SEARCH_SAMPLES; i++) {
+      ivec2 sampleCoord = sampleSearchCoord(coord, extent, radius);
 
-   for (int i = 0; i < RESTIR_SPATIAL_CANDIDATE_COUNT; i++) {
-      Reservoir candidate;
-      vec3 neighborWorldPos;
-      vec3 neighborNormal;
-      vec3 neighborAlbedo;
-      float confidence;
-      float sourceTarget;
-      float selectionWeight;
-
-      if (!loadSpatialCandidate(coord, extent, visiblePos, visibleNormal, temporalSet, i, radiusOffset, angleOffset,
-            candidate, neighborWorldPos, neighborNormal, neighborAlbedo, confidence, sourceTarget, selectionWeight)) {
+      vec3 samplePos;
+      vec3 sampleNormal;
+      vec3 sampleAlbedo;
+      if (!loadSurface(sampleCoord, samplePos, sampleNormal, sampleAlbedo)) {
+         radius *= RESTIR_REUSE_CELL_RADIUS_GROWTH;
          continue;
       }
-      if (selectionWeight <= RESTIR_EPS) continue;
+      if (!similarSurface(visiblePos, visibleNormal, samplePos, sampleNormal)) {
+         radius *= RESTIR_REUSE_CELL_RADIUS_GROWTH;
+         continue;
+      }
 
-      accumulated += selectionWeight;
-      fallbackCandidate = candidate;
-      fallbackWorldPos = neighborWorldPos;
-      fallbackNormal = neighborNormal;
-      fallbackAlbedo = neighborAlbedo;
-      fallbackConfidence = confidence;
-      fallbackSourceTarget = sourceTarget;
-      fallbackSelectionWeight = selectionWeight;
-      hasFallback = true;
+      uint samplePixelIndex = reuseCellCoordIndex(sampleCoord, extent);
+      uvec4 samplePixelRecord = loadReusePixelRecord(samplePixelIndex);
+      if (samplePixelRecord.z == INVALID_ID) {
+         radius *= RESTIR_REUSE_CELL_RADIUS_GROWTH;
+         continue;
+      }
 
-      if (!found && threshold <= accumulated) {
-         selectedCandidate = candidate;
-         selectedWorldPos = neighborWorldPos;
-         selectedNormal = neighborNormal;
-         selectedAlbedo = neighborAlbedo;
-         selectedConfidence = confidence;
-         selectedSourceTarget = sourceTarget;
-         selectedSelectionWeight = selectionWeight;
+      uvec4 cellRecord = loadReuseCellRecord(samplePixelRecord.z, extent);
+      float cellWeight = reuseCellConfidenceSum(cellRecord);
+      if (cellWeight <= RESTIR_EPS) {
+         radius *= RESTIR_REUSE_CELL_RADIUS_GROWTH;
+         continue;
+      }
+
+      weightSum += cellWeight;
+      if (rand() * weightSum <= cellWeight) {
+         selectedCell = samplePixelRecord.z;
          found = true;
       }
+
+      radius *= RESTIR_REUSE_CELL_RADIUS_GROWTH;
    }
 
-   if (found) return true;
-   if (!hasFallback) return false;
+   return found;
+}
 
-   selectedCandidate = fallbackCandidate;
-   selectedWorldPos = fallbackWorldPos;
-   selectedNormal = fallbackNormal;
-   selectedAlbedo = fallbackAlbedo;
-   selectedConfidence = fallbackConfidence;
-   selectedSourceTarget = fallbackSourceTarget;
-   selectedSelectionWeight = fallbackSelectionWeight;
-   return true;
+void mergePairwiseChoice(
+      bool hasCandidate,
+      uint candidatePixelIndex,
+      float candidateConfidence,
+      float candidateSourceTarget,
+      float candidateSelectionWeight,
+      float selectionWeightSum,
+      float scaledConfidenceSum,
+      float centerConfidence,
+      float nonCanonicalScale,
+      ivec2 extent,
+      int temporalSet,
+      vec3 visibleWorldPos,
+      vec3 visibleNormal,
+      vec3 visibleAlbedo,
+      inout Reservoir spatialReservoir,
+      inout float selectedTarget,
+      inout bool hasSelectedTarget) {
+   if (!hasCandidate) return;
+
+   Reservoir candidate;
+   getTemporalReservoir(reuseCellIndexToCoord(candidatePixelIndex, extent), temporalSet, candidate);
+   if (candidate.M <= 0.0 || isnan(candidate.M) || isinf(candidate.M)) return;
+   candidate.M = min(candidate.M, RESTIR_SPATIAL_M_CLAMP);
+
+   float candidateTarget = targetFunction(candidate.z, visibleWorldPos, visibleNormal, visibleAlbedo);
+   if (candidateTarget <= RESTIR_EPS) return;
+
+   float candidateJacobian = reuseJacobian(candidate.z, visibleWorldPos);
+   float shiftedTarget = candidateTarget * candidateJacobian;
+   if (shiftedTarget <= RESTIR_EPS || isnan(shiftedTarget) || isinf(shiftedTarget)) return;
+
+   float selectionProbability = candidateSelectionWeight / selectionWeightSum;
+   if (selectionProbability <= RESTIR_EPS || isnan(selectionProbability) || isinf(selectionProbability)) return;
+
+   float scaledCandidateConfidence = candidateConfidence * nonCanonicalScale;
+   float pairDenom = scaledConfidenceSum * candidateSourceTarget + centerConfidence * shiftedTarget;
+   if (pairDenom <= RESTIR_EPS || isnan(pairDenom) || isinf(pairDenom)) return;
+
+   float deterministicMis = (scaledConfidenceSum / (scaledConfidenceSum + centerConfidence))
+      * ((scaledCandidateConfidence * candidateSourceTarget) / pairDenom);
+   float stochasticMis = deterministicMis / (float(RESTIR_SPATIAL_PAIRWISE_SAMPLES) * selectionProbability);
+   float candidateWeight = stochasticMis * shiftedTarget * candidate.W;
+
+   if (mergeReservoir(spatialReservoir, candidate, candidateWeight)) {
+      selectedTarget = candidateTarget;
+      hasSelectedTarget = true;
+   }
 }
 
 void main() {
@@ -351,8 +220,9 @@ void main() {
 
    vec3 visibleWorldPos = visiblePos + cameraPosition;
 
+   int temporalSet = frameCounter % 2;
    Reservoir centerReservoir;
-   getTemporalReservoir(coord, frameCounter % 2, centerReservoir);
+   getTemporalReservoir(coord, temporalSet, centerReservoir);
 
    if (centerReservoir.M <= 0.0 || isnan(centerReservoir.M) || isinf(centerReservoir.M)) {
       centerReservoir.M = 1.0;
@@ -363,16 +233,117 @@ void main() {
    bool hasCanonical = centerReservoir.W > RESTIR_EPS && !isnan(centerReservoir.W) && !isinf(centerReservoir.W)
       && pHatCenter > RESTIR_EPS;
 
-   float radiusOffset = rand();
-   float angleOffset = rand();
+   uint selectedCell;
+   bool hasSelectedCell = sampleNeighborCell(coord, extent, visiblePos, visibleNormal, selectedCell);
 
-   // Large-kernel candidate set: gather source-domain confidence and contribution
-   // without shifting every neighbor into the current pixel.
-   float confidenceSum;
-   float selectionWeightSum;
-   int supportDomainCount;
-   gatherSpatialCandidateStats(coord, extent, visiblePos, visibleNormal, frameCounter % 2, radiusOffset, angleOffset,
-      confidenceSum, selectionWeightSum, supportDomainCount);
+   float confidenceSum = 0.0;
+   float selectionWeightSum = 0.0;
+   int supportDomainCount = 0;
+   bool hasCanonicalDomain = false;
+   vec3 canonicalWorldPos = vec3(0.0);
+   vec3 canonicalNormal = vec3(0.0);
+   vec3 canonicalAlbedo = vec3(0.0);
+   float canonicalConfidence = 0.0;
+
+   uint pairwisePixel0 = INVALID_ID;
+   uint pairwisePixel1 = INVALID_ID;
+   uint pairwisePixel2 = INVALID_ID;
+   float pairwiseConfidence0 = 0.0;
+   float pairwiseConfidence1 = 0.0;
+   float pairwiseConfidence2 = 0.0;
+   float pairwiseSourceTarget0 = 0.0;
+   float pairwiseSourceTarget1 = 0.0;
+   float pairwiseSourceTarget2 = 0.0;
+   float pairwiseSelectionWeight0 = 0.0;
+   float pairwiseSelectionWeight1 = 0.0;
+   float pairwiseSelectionWeight2 = 0.0;
+   bool hasPairwiseCandidate0 = false;
+   bool hasPairwiseCandidate1 = false;
+   bool hasPairwiseCandidate2 = false;
+
+   if (hasSelectedCell) {
+      uvec4 cellRecord = loadReuseCellRecord(selectedCell, extent);
+      ivec2 tileOrigin = reuseCellTileOrigin(selectedCell, extent);
+      uint maskLo = cellRecord.x;
+      uint maskHi = cellRecord.y;
+
+      for (int visited = 0; visited < RESTIR_REUSE_CELL_MAX_PIXELS && (maskLo != 0u || maskHi != 0u); visited++) {
+         int localIndex;
+         if (maskLo != 0u) {
+            localIndex = findLSB(maskLo);
+            maskLo &= maskLo - 1u;
+         } else {
+            localIndex = findLSB(maskHi) + 32;
+            maskHi &= maskHi - 1u;
+         }
+
+         int x = localIndex & (RESTIR_REUSE_TILE_SIZE - 1);
+         int y = localIndex >> 3;
+         ivec2 neighborCoord = tileOrigin + ivec2(x, y);
+         if (neighborCoord.x >= extent.x || neighborCoord.y >= extent.y) continue;
+         if (all(equal(neighborCoord, coord))) continue;
+
+         uint currentPixelIndex = reuseCellCoordIndex(neighborCoord, extent);
+         uvec4 pixelRecord = loadReusePixelRecord(currentPixelIndex);
+         if (pixelRecord.z != selectedCell) continue;
+
+         vec3 neighborPos;
+         vec3 neighborNormal;
+         vec3 neighborAlbedo;
+         if (!loadSurface(neighborCoord, neighborPos, neighborNormal, neighborAlbedo)) continue;
+         if (!similarSurface(visiblePos, visibleNormal, neighborPos, neighborNormal)) continue;
+
+         Reservoir candidate;
+         getTemporalReservoir(neighborCoord, temporalSet, candidate);
+         if (candidate.M <= 0.0 || isnan(candidate.M) || isinf(candidate.M)) continue;
+
+         candidate.M = min(candidate.M, RESTIR_SPATIAL_M_CLAMP);
+         float confidence = candidate.M;
+         if (confidence <= RESTIR_EPS) continue;
+
+         vec3 neighborWorldPos = neighborPos + cameraPosition;
+         confidenceSum += confidence;
+         supportDomainCount++;
+
+         if (rand() * float(supportDomainCount) < 1.0) {
+            canonicalWorldPos = neighborWorldPos;
+            canonicalNormal = neighborNormal;
+            canonicalAlbedo = neighborAlbedo;
+            canonicalConfidence = confidence;
+            hasCanonicalDomain = true;
+         }
+
+         float sourceTarget = uintBitsToFloat(pixelRecord.w);
+         if (sourceTarget <= RESTIR_EPS || isnan(sourceTarget) || isinf(sourceTarget)) continue;
+         if (candidate.W <= RESTIR_EPS || isnan(candidate.W) || isinf(candidate.W)) continue;
+
+         float selectionWeight = confidence * sourceTarget * candidate.W;
+         if (selectionWeight <= RESTIR_EPS || isnan(selectionWeight) || isinf(selectionWeight)) continue;
+
+         selectionWeightSum += selectionWeight;
+         if (rand() * selectionWeightSum <= selectionWeight) {
+            pairwisePixel0 = currentPixelIndex;
+            pairwiseConfidence0 = confidence;
+            pairwiseSourceTarget0 = sourceTarget;
+            pairwiseSelectionWeight0 = selectionWeight;
+            hasPairwiseCandidate0 = true;
+         }
+         if (rand() * selectionWeightSum <= selectionWeight) {
+            pairwisePixel1 = currentPixelIndex;
+            pairwiseConfidence1 = confidence;
+            pairwiseSourceTarget1 = sourceTarget;
+            pairwiseSelectionWeight1 = selectionWeight;
+            hasPairwiseCandidate1 = true;
+         }
+         if (rand() * selectionWeightSum <= selectionWeight) {
+            pairwisePixel2 = currentPixelIndex;
+            pairwiseConfidence2 = confidence;
+            pairwiseSourceTarget2 = sourceTarget;
+            pairwiseSelectionWeight2 = selectionWeight;
+            hasPairwiseCandidate2 = true;
+         }
+      }
+   }
 
    float centerConfidence = centerReservoir.M;
    float nonCanonicalScale = supportDomainCount > 0
@@ -391,27 +362,15 @@ void main() {
       float pairConfidenceSum = scaledConfidenceSum + centerConfidence;
       canonicalMis = centerConfidence / pairConfidenceSum;
 
-      for (int i = 0; i < RESTIR_SPATIAL_CANONICAL_SAMPLES; i++) {
-         int targetRank = clamp(int(floor(rand() * float(supportDomainCount))), 0, max(supportDomainCount - 1, 0));
-
-         Reservoir candidate;
-         vec3 neighborWorldPos;
-         vec3 neighborNormal;
-         vec3 neighborAlbedo;
-         float candidateConfidence;
-         if (!getSpatialSupportDomainByRank(coord, extent, visiblePos, visibleNormal, frameCounter % 2, radiusOffset, angleOffset,
-               targetRank, candidate, neighborWorldPos, neighborNormal, neighborAlbedo, candidateConfidence)) {
-            continue;
-         }
-
-         float scaledCandidateConfidence = candidateConfidence * nonCanonicalScale;
-         float pHatCenterToNeighbor = spatialMergeTarget(centerReservoir.z, neighborWorldPos, neighborNormal, neighborAlbedo);
+      if (hasCanonicalDomain) {
+         float scaledCandidateConfidence = canonicalConfidence * nonCanonicalScale;
+         float pHatCenterToNeighbor = spatialMergeTarget(centerReservoir.z, canonicalWorldPos, canonicalNormal, canonicalAlbedo);
          float betaDenom = scaledConfidenceSum * pHatCenterToNeighbor + centerConfidence * pHatCenter;
-         if (betaDenom <= RESTIR_EPS || isnan(betaDenom) || isinf(betaDenom)) continue;
-
-         float beta = (scaledCandidateConfidence / pairConfidenceSum)
-            * ((centerConfidence * pHatCenter) / betaDenom);
-         canonicalMis += beta * (float(supportDomainCount) / float(RESTIR_SPATIAL_CANONICAL_SAMPLES));
+         if (betaDenom > RESTIR_EPS && !isnan(betaDenom) && !isinf(betaDenom)) {
+            float beta = (scaledCandidateConfidence / pairConfidenceSum)
+               * ((centerConfidence * pHatCenter) / betaDenom);
+            canonicalMis += beta * (float(supportDomainCount) / float(RESTIR_SPATIAL_CANONICAL_SAMPLES));
+         }
       }
    }
 
@@ -423,44 +382,18 @@ void main() {
    // Non-canonical stochastic pairwise MIS: sample contributing source domains
    // with replacement and compensate each selected domain by 1 / (N * P_i).
    if (selectionWeightSum > RESTIR_EPS && scaledConfidenceSum > RESTIR_EPS) {
-      for (int i = 0; i < RESTIR_SPATIAL_PAIRWISE_SAMPLES; i++) {
-         Reservoir candidate;
-         vec3 neighborWorldPos;
-         vec3 neighborNormal;
-         vec3 neighborAlbedo;
-         float candidateConfidence;
-         float candidateSourceTarget;
-         float candidateSelectionWeight;
-         if (!sampleSpatialCandidateByWeight(coord, extent, visiblePos, visibleNormal, frameCounter % 2, radiusOffset, angleOffset,
-               selectionWeightSum, candidate, neighborWorldPos, neighborNormal, neighborAlbedo,
-               candidateConfidence, candidateSourceTarget, candidateSelectionWeight)) {
-            continue;
-         }
-
-         float candidateTarget = targetFunction(candidate.z, visibleWorldPos, visibleNormal, visibleAlbedo);
-         if (candidateTarget <= RESTIR_EPS) continue;
-
-         float candidateJacobian = reuseJacobian(candidate.z, visibleWorldPos);
-         float shiftedTarget = candidateTarget * candidateJacobian;
-         if (shiftedTarget <= RESTIR_EPS || isnan(shiftedTarget) || isinf(shiftedTarget)) continue;
-
-         float selectionProbability = candidateSelectionWeight / selectionWeightSum;
-         if (selectionProbability <= RESTIR_EPS || isnan(selectionProbability) || isinf(selectionProbability)) continue;
-
-         float scaledCandidateConfidence = candidateConfidence * nonCanonicalScale;
-         float pairDenom = scaledConfidenceSum * candidateSourceTarget + centerConfidence * shiftedTarget;
-         if (pairDenom <= RESTIR_EPS || isnan(pairDenom) || isinf(pairDenom)) continue;
-
-         float deterministicMis = (scaledConfidenceSum / (scaledConfidenceSum + centerConfidence))
-            * ((scaledCandidateConfidence * candidateSourceTarget) / pairDenom);
-         float stochasticMis = deterministicMis / (float(RESTIR_SPATIAL_PAIRWISE_SAMPLES) * selectionProbability);
-         float candidateWeight = stochasticMis * shiftedTarget * candidate.W;
-
-         if (mergeReservoir(spatialReservoir, candidate, candidateWeight)) {
-            selectedTarget = candidateTarget;
-            hasSelectedTarget = true;
-         }
-      }
+      mergePairwiseChoice(hasPairwiseCandidate0, pairwisePixel0, pairwiseConfidence0, pairwiseSourceTarget0,
+         pairwiseSelectionWeight0, selectionWeightSum, scaledConfidenceSum, centerConfidence, nonCanonicalScale,
+         extent, temporalSet, visibleWorldPos, visibleNormal, visibleAlbedo,
+         spatialReservoir, selectedTarget, hasSelectedTarget);
+      mergePairwiseChoice(hasPairwiseCandidate1, pairwisePixel1, pairwiseConfidence1, pairwiseSourceTarget1,
+         pairwiseSelectionWeight1, selectionWeightSum, scaledConfidenceSum, centerConfidence, nonCanonicalScale,
+         extent, temporalSet, visibleWorldPos, visibleNormal, visibleAlbedo,
+         spatialReservoir, selectedTarget, hasSelectedTarget);
+      mergePairwiseChoice(hasPairwiseCandidate2, pairwisePixel2, pairwiseConfidence2, pairwiseSourceTarget2,
+         pairwiseSelectionWeight2, selectionWeightSum, scaledConfidenceSum, centerConfidence, nonCanonicalScale,
+         extent, temporalSet, visibleWorldPos, visibleNormal, visibleAlbedo,
+         spatialReservoir, selectedTarget, hasSelectedTarget);
    }
 
    spatialReservoir.z.visiblePointPos = visibleWorldPos;

@@ -23,6 +23,7 @@ uniform sampler2D specularAtlas;
 #include "/lib/bvh/raytrace.glsl"
 #include "/lib/restir/sampling.glsl"
 #include "/lib/restir/reservoir.glsl"
+#include "/lib/restir/reuse_cells.glsl"
 #include "/lib/atmosphere/atmosphere.glsl"
 
 vec3 sampleSunCap(vec3 sunDirection, float cosThreshold) {
@@ -39,6 +40,9 @@ vec3 sampleSunCap(vec3 sunDirection, float cosThreshold) {
 
 void main() {
    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+   ivec2 extent = ivec2(int(viewWidth), int(viewHeight));
+   if (coord.x >= extent.x || coord.y >= extent.y) return;
+
    vec2 uv = vec2(coord + 0.5) / vec2(viewWidth, viewHeight);
 
    if (uv.x >= 1.0 || uv.y >= 1.0) return;
@@ -46,6 +50,7 @@ void main() {
    vec3 startNormal = texture(colortex7, uv).rgb;
    vec3 visiblePointPos = texture(colortex6, uv).rgb;
    vec3 visiblePointWorldPos = visiblePointPos + cameraPosition;
+   clearReuseCellForPixel(coord, extent, startNormal);
 
    if (dot(startNormal, startNormal) <= 0.25) {
       insertInitialSample(coord, Sample(visiblePointWorldPos, vec3(0.0), visiblePointWorldPos, vec3(0.0), vec3(0.0), 0.0));

@@ -233,6 +233,7 @@ void computeRaytraceTangentBasis(QuadData qd, vec3 p0, vec3 p1, vec3 p2, vec3 p3
 
 vec3 decodeRaytraceLabPBRNormal(vec4 normalSample, vec3 geomNormal, vec3 tangent, vec3 bitangent) {
    vec2 nxy = normalSample.rg * 2.0 - 1.0;
+   nxy.y = -nxy.y;
    vec3 tangentNormal = normalize(vec3(nxy, sqrt(max(1.0 - dot(nxy, nxy), 0.00001))));
    return normalize(tangent * tangentNormal.x + bitangent * tangentNormal.y + geomNormal * tangentNormal.z);
 }

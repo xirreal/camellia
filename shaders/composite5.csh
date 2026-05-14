@@ -25,6 +25,7 @@ uniform sampler2D specularAtlas;
 #include "/lib/bvh/raytrace.glsl"
 #include "/lib/restir/reservoir.glsl"
 #include "/lib/restir/sampling.glsl"
+#include "/lib/restir/reuse_cells.glsl"
 
 float luminance(vec3 color) {
    return dot(color, vec3(0.2126, 0.7152, 0.0722));
@@ -198,13 +199,20 @@ void main() {
       if (foundHistory) {
          float historyJacobian = temporalReuseJacobian(history.z, visibleWorldPos);
          history.M = min(history.M, RESTIR_TEMPORAL_M_CLAMP);
-         float historyTarget = targetFunction(history.z, visibleWorldPos, visibleNormal, visibleAlbedo);
-         float historyShiftedTarget = historyTarget * historyJacobian;
-         float historyWeight = historyShiftedTarget > RESTIR_EPS && visibleSample(history.z, visibleWorldPos, visibleNormal)
-            ? historyShiftedTarget * history.W * history.M : 0.0;
-         if (mergeReservoir(R, history, historyWeight)) {
-            selectedTarget = historyTarget; // selectedTarget = historyShiftedTarget;
-            hasSelectedTarget = true;
+         history.age = min(history.age + 1.0, RESTIR_M_PACK_MAX);
+         if (history.age > RESTIR_TEMPORAL_MAX_AGE) {
+            foundHistory = false;
+         }
+
+         if (foundHistory) {
+            float historyTarget = targetFunction(history.z, visibleWorldPos, visibleNormal, visibleAlbedo);
+            float historyShiftedTarget = historyTarget * historyJacobian;
+            float historyWeight = historyShiftedTarget > RESTIR_EPS && visibleSample(history.z, visibleWorldPos, visibleNormal)
+               ? historyShiftedTarget * history.W * history.M : 0.0;
+            if (mergeReservoir(R, history, historyWeight)) {
+               selectedTarget = historyTarget; // selectedTarget = historyShiftedTarget;
+               hasSelectedTarget = true;
+            }
          }
       }
    }
@@ -215,7 +223,7 @@ void main() {
    S.visiblePointNormal = visibleNormal;
    float initialTarget = targetFunction(S, visibleWorldPos, visibleNormal, visibleAlbedo);
    float w = S.samplePdf > RESTIR_EPS ? initialTarget / S.samplePdf : 0.0;
-   if (mergeReservoir(R, Reservoir(S, 0.0, 1.0, 0.0), w)) {
+   if (mergeReservoir(R, Reservoir(S, 0.0, 1.0, 0.0, 0.0), w)) {
       selectedTarget = initialTarget;
       hasSelectedTarget = true;
    }
@@ -228,6 +236,12 @@ void main() {
    R.W = (R.M > 0.0 && R.w_sum > 0.0 && selectedTarget > RESTIR_EPS)
       ? clamp(R.w_sum / (R.M * selectedTarget), 0.0, RESTIR_WEIGHT_CLAMP) : 0.0;
    if (isnan(R.W) || isinf(R.W)) R.W = 0.0;
+
+   float reuseSourceTarget = targetFunction(R.z, visibleWorldPos, visibleNormal, visibleAlbedo);
+   if (isnan(reuseSourceTarget) || isinf(reuseSourceTarget)) reuseSourceTarget = 0.0;
+   bool hasContributingReservoir = R.W > RESTIR_EPS && reuseSourceTarget > RESTIR_EPS;
+   insertReuseCellPixel(coord, extent, visibleNormal, min(R.M, RESTIR_SPATIAL_M_CLAMP),
+      reuseSourceTarget, hasContributingReservoir);
 
    setTemporalReservoir(coord, temporalSet, R);
 }

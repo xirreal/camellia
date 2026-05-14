@@ -40,6 +40,7 @@ vec3 safeTangent(vec3 normal, vec3 tangent) {
 
 vec3 decodeLabPBRNormal(vec4 normalSample, vec3 geomNormal, vec4 tangentSample) {
    vec2 nxy = normalSample.rg * 2.0 - 1.0;
+   nxy.y = -nxy.y;
    vec3 tangentNormal = normalize(vec3(nxy, sqrt(max(1.0 - dot(nxy, nxy), 0.00001))));
 
    vec3 normal = normalize(geomNormal);

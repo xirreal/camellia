@@ -97,6 +97,7 @@ void decodeLabPBR(vec3 hitPos, vec2 uv, vec3 geomNormal, uint quadID, int triInd
    }
 
    vec2 nxy = nTexSample.rg * 2.0 - 1.0;
+   nxy.y = -nxy.y;
    vec3 nTex = normalize(vec3(nxy, sqrt(max(1.0 - dot(nxy, nxy), 0.00001))));
    ao = nTexSample.b;
 
