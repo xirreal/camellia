@@ -257,8 +257,7 @@ bool sampleRaytraceLabPBR(uint textureID, vec2 uv, out vec4 normalSample, out ve
 bool quadAlphaSkipsIntersection(QuadData qd, vec2 bary, int triIndex) {
    #ifdef ALPHA_TEST
    bool alphaTested = qdAlphaTested(qd);
-   bool translucentCutout = qdTranslucent(qd) && qdBlockID(qd) != 1u;
-   if (!alphaTested && !translucentCutout) return false;
+   if (!alphaTested) return false;
 
    vec2 uv = interpolateUV(qd, bary, triIndex);
    return sampleQuadTexture(qd, uv).a < alphaTestRef;
@@ -405,14 +404,14 @@ bool shadowTriHit(QuadData qd, vec2 bary, int triIndex, float hitT, inout vec3 t
 
    if (qdTranslucent(qd)) {
       if (qdBlockID(qd) == 1u) {
-         vec3 waterTint = pow(interpolateTint(qd, bary, triIndex), vec3(2.2));
-         tint *= waterTint * exp(-WATER_ABSORPTION * max(hitT, 0.5));
-         return tint == vec3(0.0);
+         return false;
       }
       vec2 hitUV = interpolateUV(qd, bary, triIndex);
       vec4 texSample = sampleQuadTexture(qd, hitUV);
+      vec3 vertexTint = interpolateTint(qd, bary, triIndex);
+      vec3 texTint = mix(vec3(1.0), texSample.rgb, smoothstep(alphaTestRef, 1.0, texSample.a));
       float transparency = 1.0 - texSample.a;
-      tint *= mix(vec3(0.0), pow(texSample.rgb * interpolateTint(qd, bary, triIndex), vec3(2.2)), transparency);
+      tint *= mix(vec3(0.0), pow(texTint * vertexTint, vec3(2.2)), transparency);
       return tint == vec3(0.0);
    } else {
       return true;
