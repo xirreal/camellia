@@ -85,6 +85,15 @@ vec3 sampleSunDisk(vec3 lightDir, float sunCosThreshold) {
    return sampleConeUniform(lightDir, sunCosThreshold, pdfUnused);
 }
 
+vec3 waterCausticSearchAxis(vec3 lightDir, bool startInsideWater) {
+   if (!startInsideWater || lightDir.y <= 0.0) return lightDir;
+
+   vec3 flatWaterIncident = refract(-lightDir, vec3(0.0, 1.0, 0.0), 1.0 / WATER_IOR);
+   if (dot(flatWaterIncident, flatWaterIncident) < 0.001) return lightDir;
+
+   return normalize(-flatWaterIncident);
+}
+
 float glassReferenceIOR() {
    vec3 B, C;
    glassCoeffs_N_BK7(B, C);
@@ -124,7 +133,7 @@ vec3 refractiveShadeNormal(TraceResult hit, vec3 incidentDir, vec3 hitPoint, vec
    float sssAmount;
 
    decodeLabPBR(hitPoint, hit.uv, hit.normal, hit.quadID, hit.triIndex, hit.textureID, baseColor,
-         shadeNormal, roughness, metallic, F0, F82tint, emissionMap, ao, sssAmount);
+      shadeNormal, roughness, metallic, F0, F82tint, emissionMap, ao, sssAmount);
 
    if (dot(shadeNormal, incidentDir) > 0.0) shadeNormal = -shadeNormal;
 
@@ -179,7 +188,7 @@ SunVisibility traceSunVisibility(vec3 ro, vec3 rd, float maxDist, vec3 lightDir,
       }
 
       vec4 texColor = sampleHitTexture(hit);
-      vec3 texTint = mix(vec3(1.0), texColor.rgb, smoothstep(alphaTestRef, 1.0, texColor.a));
+      vec3 texTint = mix(vec3(1.0), texColor.rgb, smoothstep(alphaTestRef, 0.8, texColor.a));
       vec3 surfaceTint = pow(max(texTint * hit.vertexData.rgb, vec3(0.0)), vec3(2.2));
       float transparency = clamp(1.0 - texColor.a, 0.0, 1.0);
 
@@ -511,7 +520,7 @@ void main() {
                #endif
             }
             float opacity = glassTexColor.a;
-            vec3 glassTexTint = mix(vec3(1.0), glassTexColor.rgb * glassTexColor.rgb, smoothstep(alphaTestRef, 1.0, opacity));
+            vec3 glassTexTint = mix(vec3(1.0), glassTexColor.rgb, smoothstep(alphaTestRef, 0.5, opacity));
             vec3 glassColor = pow(max(glassTexTint * bounceHit.vertexData.rgb, vec3(0.0)), vec3(2.2));
 
             int wl = int(rand() * float(GLASS_BIN_COUNT));
@@ -642,7 +651,8 @@ void main() {
       }
 
       #if defined(GLASS_CAUSTICS) && GLASS_CAUSTIC_SAMPLES > 0
-      if (frontLit) {
+      vec3 causticAxis = waterCausticSearchAxis(lightDir, shadowStartsInWater);
+      if (dot(N, causticAxis) > 0.0) {
          float causticHalfAngle = max(sunHalfAngle, GLASS_CAUSTIC_CONE_DEGREES * (PI / 180.0));
          float causticCosThreshold = cos(causticHalfAngle);
          float causticSolidAngle = max(2.0 * PI * (1.0 - causticCosThreshold), 1e-8);
@@ -655,7 +665,7 @@ void main() {
 
          for (int causticSample = 0; causticSample < GLASS_CAUSTIC_SAMPLES; causticSample++) {
             float sampledPdf;
-            vec3 causticDir = sampleConeUniform(lightDir, causticCosThreshold, sampledPdf);
+            vec3 causticDir = sampleConeUniform(causticAxis, causticCosThreshold, sampledPdf);
             float cNdotL = dot(N, causticDir);
 
             if (cNdotL > 0.0 && dot(N_geom, causticDir) > 0.0) {
