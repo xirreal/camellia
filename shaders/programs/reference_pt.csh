@@ -54,7 +54,8 @@ const float WATER_WAVE_STRENGTH = 0.1;
 #define GLASS_CAUSTIC_CLAMP 12.0       //[0.0 4.0 8.0 12.0 24.0 48.0]
 
 const int GLASS_SHADOW_MAX_BENDS = 8;
-const float GLASS_SHADOW_BIAS = 0.002;
+const float RAY_ORIGIN_BIAS = 1e-4;
+const float REFRACT_TIR_EPSILON = 1e-8;
 const float GLASS_NORMAL_REFRACTION_STRENGTH = 0.35;
 const float GLASS_REFERENCE_WAVELENGTH = 535.0;
 
@@ -64,6 +65,14 @@ struct SunVisibility {
    bool visible;
    bool refracted;
 };
+
+vec3 offsetRayOrigin(vec3 p, vec3 n) {
+   return p + n * RAY_ORIGIN_BIAS;
+}
+
+bool refractWasTIR(vec3 refracted) {
+   return dot(refracted, refracted) <= REFRACT_TIR_EPSILON;
+}
 
 vec3 sampleConeUniform(vec3 axis, float cosMax, out float pdf) {
    float u = rand();
@@ -89,7 +98,7 @@ vec3 waterCausticSearchAxis(vec3 lightDir, bool startInsideWater) {
    if (!startInsideWater || lightDir.y <= 0.0) return lightDir;
 
    vec3 flatWaterIncident = refract(-lightDir, vec3(0.0, 1.0, 0.0), 1.0 / WATER_IOR);
-   if (dot(flatWaterIncident, flatWaterIncident) < 0.001) return lightDir;
+   if (refractWasTIR(flatWaterIncident)) return lightDir;
 
    return normalize(-flatWaterIncident);
 }
@@ -200,7 +209,7 @@ SunVisibility traceSunVisibility(vec3 ro, vec3 rd, float maxDist, vec3 lightDir,
 
          float eta = insideWaterShadow ? WATER_IOR : (1.0 / WATER_IOR);
          vec3 refracted = refract(dir, N, eta);
-         if (dot(refracted, refracted) < 0.001) {
+         if (refractWasTIR(refracted)) {
             res.visible = false;
             res.transmittance = vec3(0.0);
             return res;
@@ -211,7 +220,7 @@ SunVisibility traceSunVisibility(vec3 ro, vec3 rd, float maxDist, vec3 lightDir,
          insideWaterShadow = !insideWaterShadow;
          res.refracted = true;
          dir = normalize(refracted);
-         pos = hitPoint + dir * GLASS_SHADOW_BIAS;
+         pos = offsetRayOrigin(hitPoint, -N);
          continue;
       }
 
@@ -224,7 +233,7 @@ SunVisibility traceSunVisibility(vec3 ro, vec3 rd, float maxDist, vec3 lightDir,
       vec3 N = refractiveShadeNormal(hit, dir, hitPoint, surfaceTint);
       float eta = insideGlass ? glassIOR : (1.0 / glassIOR);
       vec3 refracted = refract(dir, N, eta);
-      if (dot(refracted, refracted) < 0.001) {
+      if (refractWasTIR(refracted)) {
          res.visible = false;
          res.transmittance = vec3(0.0);
          return res;
@@ -246,7 +255,7 @@ SunVisibility traceSunVisibility(vec3 ro, vec3 rd, float maxDist, vec3 lightDir,
 
       res.refracted = true;
       dir = normalize(refracted);
-      pos = hitPoint + dir * GLASS_SHADOW_BIAS;
+      pos = offsetRayOrigin(hitPoint, -N);
    }
 
    res.visible = false;
@@ -395,11 +404,10 @@ void main() {
    bool insideWater = false;
    vec3 mediumColor = vec3(1.0);
 
-   vec3 hitPos = ro;
+   vec3 rayOrigin = ro;
    vec3 hitNormal = vec3(0.0);
    vec3 nextDir = rd;
    bool hasFixedDir = true;
-   float shadowBias = 0.001;
    TraceResult cachedHit = primaryHit;
    bool hasCachedHit = true;
 
@@ -409,7 +417,7 @@ void main() {
    }
 
    for (int bounce = 0; bounce < MAX_BOUNCES; bounce++) {
-      vec3 origin = hitPos + hitNormal * shadowBias;
+      vec3 origin = rayOrigin;
 
       vec3 bounceDir;
       if (hasFixedDir) {
@@ -464,7 +472,7 @@ void main() {
       bool shadowStartsInWater = insideMedium && insideWater;
 
       float d = dot(N, V);
-      N = mix(N, bounceHit.normal, 1.0 - smoothstep(0.0, 0.05, d));
+      N = normalize(mix(N, bounceHit.normal, 1.0 - smoothstep(0.0, 0.05, d)));
 
       if (bounceHit.translucent) {
          if (bounceHit.waterSurface) {
@@ -477,21 +485,18 @@ void main() {
             float fresnel = fresnelSchlick(cosI, WATER_IOR);
 
             vec3 refracted = refract(bounceDir, N, eta);
-            bool tir = dot(refracted, refracted) < 0.001;
+            bool tir = refractWasTIR(refracted);
 
             if (tir || rand() < fresnel) {
                nextDir = reflect(bounceDir, N);
 
                if (insideWater) {
                   throughput *= exp(-WATER_ABSORPTION * bounceHit.t);
-                  hitPos = hitPoint + N * 0.001;
-                  hitNormal = N;
-               } else {
-                  hitPos = hitPoint + N * 0.001;
-                  hitNormal = N;
                }
+               rayOrigin = offsetRayOrigin(hitPoint, N);
+               hitNormal = N;
             } else {
-               nextDir = refracted;
+               nextDir = normalize(refracted);
 
                if (insideWater) {
                   throughput *= exp(-WATER_ABSORPTION * bounceHit.t);
@@ -503,7 +508,7 @@ void main() {
                   mediumColor = vec3(1.0);
                }
 
-               hitPos = hitPoint - N * 0.001;
+               rayOrigin = offsetRayOrigin(hitPoint, -N);
                hitNormal = -N;
             }
             hasFixedDir = true;
@@ -520,7 +525,7 @@ void main() {
                #endif
             }
             float opacity = glassTexColor.a;
-            vec3 glassTexTint = mix(vec3(1.0), glassTexColor.rgb, smoothstep(alphaTestRef, 0.5, opacity));
+            vec3 glassTexTint = mix(vec3(1.0), glassTexColor.rgb * glassTexColor.rgb, smoothstep(alphaTestRef, 0.5, opacity));
             vec3 glassColor = pow(max(glassTexTint * bounceHit.vertexData.rgb, vec3(0.0)), vec3(2.2));
 
             int wl = int(rand() * float(GLASS_BIN_COUNT));
@@ -539,7 +544,7 @@ void main() {
 
             if (rand() < glassProb) {
                vec3 refracted = refract(bounceDir, N, eta);
-               bool tir = dot(refracted, refracted) < 0.001;
+               bool tir = refractWasTIR(refracted);
 
                if (tir || rand() < fresnel) {
                   nextDir = reflect(bounceDir, N);
@@ -547,14 +552,11 @@ void main() {
                   if (insideMedium) {
                      vec3 absorption = -log(max(mediumColor, vec3(0.01)));
                      throughput *= exp(-absorption * bounceHit.t);
-                     hitPos = hitPoint - N * 0.001;
-                     hitNormal = -N;
-                  } else {
-                     hitPos = hitPoint + N * 0.001;
-                     hitNormal = N;
                   }
+                  rayOrigin = offsetRayOrigin(hitPoint, N);
+                  hitNormal = N;
                } else {
-                  nextDir = refracted;
+                  nextDir = normalize(refracted);
                   throughput *= channelMask;
 
                   if (insideMedium) {
@@ -566,7 +568,7 @@ void main() {
                      mediumColor = glassColor;
                   }
 
-                  hitPos = hitPoint - N * 0.001;
+                  rayOrigin = offsetRayOrigin(hitPoint, -N);
                   hitNormal = -N;
                }
                hasFixedDir = true;
@@ -595,7 +597,7 @@ void main() {
          radiance += throughput * bounceAlbedo * emission;
       }
 
-      vec3 shadowOrigin = hitPoint + N * shadowBias;
+      vec3 shadowOrigin = offsetRayOrigin(hitPoint, N);
       vec3 N_geom = bounceHit.normal;
       float NdotL_direct = dot(N, lightDir);
       bool frontLit = NdotL_direct > 0.0;
@@ -608,9 +610,9 @@ void main() {
       float specularProb = clamp(max(max(kS.r, kS.g), kS.b), 0.05, 0.95);
 
       #ifdef MC_TEXTURE_FORMAT_LAB_PBR_1_3
-      float sunHalfAngle = 0.007 + sssAmount * 0.01;
+      float sunHalfAngle = 0.00465 + sssAmount * 0.01;
       #else
-      float sunHalfAngle = 0.007 + sssAmount * 0.1;
+      float sunHalfAngle = 0.00465 + sssAmount * 0.1;
       #endif
       float sunCosThreshold = cos(sunHalfAngle);
       float sunSolidAngle = max(2.0 * PI * (1.0 - sunCosThreshold), 1e-8);
@@ -638,7 +640,7 @@ void main() {
          }
 
          if (backLit) {
-            vec3 sssOrigin = hitPoint - N * shadowBias;
+            vec3 sssOrigin = offsetRayOrigin(hitPoint, -N);
             SunVisibility shadow = traceSunVisibility(sssOrigin, sampleDir, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, vec3(1.0), shadowStartsInWater);
             if (shadow.visible) {
                float wrap = max(-sNdotL, 0.0);
@@ -754,9 +756,8 @@ void main() {
       nextDir = L_sample;
       hasFixedDir = true;
 
-      hitPos = hitPoint;
+      rayOrigin = offsetRayOrigin(hitPoint, N);
       hitNormal = N;
-      shadowBias = 0.001;
 
       if (bounce > 0) {
          float p = max(max(throughput.r, throughput.g), throughput.b);
