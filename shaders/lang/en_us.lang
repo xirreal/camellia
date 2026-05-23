@@ -30,11 +30,21 @@ option.DOF_BLADES=Aperture Blades
 option.DOF_BLADES.comment=Number of aperture blades. Controls the shape of out-of-focus highlights (bokeh). 0 = perfectly circular, 5-7 = common in real lenses, higher values approach a circle.
 value.DOF_BLADES.0=Circle
 
+# Scene Capacity
+option.MAX_QUAD_COUNT=VRAM Usage
+option.MAX_QUAD_COUNT.comment=Approximate VRAM allocated for scene geometry, BVH, and sort buffers. Higher values support more quads at a higher memory cost.
+value.MAX_QUAD_COUNT.1048576=189 MiB
+value.MAX_QUAD_COUNT.2097152=378 MiB
+value.MAX_QUAD_COUNT.4194304=756 MiB
+value.MAX_QUAD_COUNT.8388608=1.48 GiB
+value.MAX_QUAD_COUNT.16777216=2.95 GiB
+value.MAX_QUAD_COUNT.33554432=5.91 GiB
+
 option.GLASS_CAUSTICS=Refractive Caustics
-option.GLASS_CAUSTICS.comment=Enables a refractive sunlight estimator for glass and water. This can show focused colored light through refractive surfaces at extra ray tracing cost.
+option.GLASS_CAUSTICS.comment=Enables guided sunlight estimators for refractive caustics and low-roughness specular highlights at extra ray tracing cost.
 
 option.GLASS_CAUSTIC_SAMPLES=Refractive Caustic Samples
-option.GLASS_CAUSTIC_SAMPLES.comment=Samples per shaded hit for glass and water caustics. More samples reduce noise but increase render time.
+option.GLASS_CAUSTIC_SAMPLES.comment=Extra guided sunlight samples per shaded hit. More samples reduce refractive caustic and specular highlight noise but increase render time.
 
 option.GLASS_CAUSTIC_CONE_DEGREES=Refractive Caustic Search
 option.GLASS_CAUSTIC_CONE_DEGREES.comment=Angular search cone around the sun for refracted caustic rays. Smaller values are cleaner; larger values catch stronger bending.

@@ -1,6 +1,7 @@
 #ifndef MATERIALS_INCLUDE_GUARD
 #define MATERIALS_INCLUDE_GUARD
 
+#include "/lib/core/normal-map.glsl"
 #include "/lib/bvh/raytrace.glsl"
 
 void computeTangentBasis(uint quadID, int triIndex, vec3 geomNormal, out vec3 tangent, out vec3 bitangent) {
@@ -96,9 +97,7 @@ void decodeLabPBR(vec3 hitPos, vec2 uv, vec3 geomNormal, uint quadID, int triInd
       spec = texture(specularAtlas, uv);
    }
 
-   vec2 nxy = nTexSample.rg * 2.0 - 1.0;
-   nxy.y = -nxy.y;
-   vec3 nTex = normalize(vec3(nxy, sqrt(max(1.0 - dot(nxy, nxy), 0.00001))));
+   vec3 nTex = decodeMinecraftNormalMap(nTexSample);
    ao = nTexSample.b;
 
    vec3 tangent;
@@ -131,11 +130,7 @@ void decodeLabPBR(vec3 hitPos, vec2 uv, vec3 geomNormal, uint quadID, int triInd
    }
    #else
    if (quadBlockID(quadID) == 2u) {
-      vec3 elFracto = fract(hitPos + cameraPosition);
-      float edgeWeight = distance(vec3(0.5, elFracto.y * elFracto.y * elFracto.y, 0.5), elFracto);
-
-      edgeWeight = pow(edgeWeight * 2.0, 4.0);
-      sss = clamp(edgeWeight, 0.0, 0.6);
+      sss = 0.3;
    } else {
       sss = 0.0;
    }

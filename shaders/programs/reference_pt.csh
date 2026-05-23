@@ -33,7 +33,7 @@ uniform float near;
 #include "/lib/pt/materials.glsl"
 #include "/lib/pt/brdf.glsl"
 
-const int MAX_BOUNCES = 8;
+const int MAX_BOUNCES = 3;
 const float SHADOW_MAX_DIST = 256.0;
 
 #define DOF_ENABLED
@@ -53,11 +53,12 @@ const float WATER_WAVE_STRENGTH = 0.1;
 #define GLASS_CAUSTIC_FILTER 4.0       //[1.0 2.0 4.0 8.0]
 #define GLASS_CAUSTIC_CLAMP 12.0       //[0.0 4.0 8.0 12.0 24.0 48.0]
 
-const int GLASS_SHADOW_MAX_BENDS = 8;
+const int GLASS_SHADOW_MAX_BENDS = 4;
 const float RAY_ORIGIN_BIAS = 1e-4;
 const float REFRACT_TIR_EPSILON = 1e-8;
 const float GLASS_NORMAL_REFRACTION_STRENGTH = 0.35;
 const float GLASS_REFERENCE_WAVELENGTH = 535.0;
+const float SPECULAR_GUIDE_MAX_ROUGHNESS = 0.65;
 
 struct SunVisibility {
    vec3 transmittance;
@@ -176,7 +177,7 @@ SunVisibility traceSunVisibility(vec3 ro, vec3 rd, float maxDist, vec3 lightDir,
             res.transmittance *= exp(-absorption * remaining);
          }
          res.finalDir = dir;
-         res.visible = !res.refracted || dot(dir, lightDir) >= sunCosThreshold;
+         res.visible = dot(dir, lightDir) >= sunCosThreshold;
          return res;
       }
 
@@ -619,6 +620,14 @@ void main() {
       float pdfNEE_sun = 1.0 / sunSolidAngle;
       vec3 sunRadiance = lightIlluminance / sunSolidAngle;
 
+      float specularGuideSampleCount = 0.0;
+      #if defined(GLASS_CAUSTICS) && GLASS_CAUSTIC_SAMPLES > 0
+      bool specularGuideEnabled = frontLit && roughness <= SPECULAR_GUIDE_MAX_ROUGHNESS;
+      if (specularGuideEnabled) {
+         specularGuideSampleCount = float(GLASS_CAUSTIC_SAMPLES);
+      }
+      #endif
+
       // ---- Next-event estimation toward the sun (with balance-heuristic MIS) ----
       if (frontLit || backLit) {
          vec3 sampleDir = sampleSunDisk(lightDir, sunCosThreshold);
@@ -632,7 +641,8 @@ void main() {
                // Marginal BRDF pdf at the NEE direction (for balance heuristic).
                float pdfBRDF_at = specularProb * pdfGGXVNDFL(N, V, sampleDir, roughness)
                      + (1.0 - specularProb) * sNdotL / PI;
-               float wNEE = pdfNEE_sun / (pdfNEE_sun + pdfBRDF_at);
+               float pdfSpecGuide_at = pdfGGXVNDFL(N, V, sampleDir, roughness);
+               float wNEE = pdfNEE_sun / (pdfNEE_sun + pdfBRDF_at + specularGuideSampleCount * pdfSpecGuide_at);
                radiance += wNEE * surfaceThroughput * brdf * sNdotL
                      * lightIlluminance * lightTint * shadow.transmittance
                      * atmosphereTransmittance(shadow.finalDir);
@@ -653,6 +663,33 @@ void main() {
       }
 
       #if defined(GLASS_CAUSTICS) && GLASS_CAUSTIC_SAMPLES > 0
+      if (specularGuideEnabled) {
+         for (int guideSample = 0; guideSample < GLASS_CAUSTIC_SAMPLES; guideSample++) {
+            vec3 H = sampleGGXHalfWorld(N, V, roughness);
+            vec3 guideDir = reflect(-V, H);
+            float gNdotL = dot(N, guideDir);
+
+            if (gNdotL > 0.0 && dot(N_geom, guideDir) > 0.0 && dot(guideDir, lightDir) >= sunCosThreshold) {
+               float pdfSpecGuide = pdfGGXVNDFL(N, V, guideDir, roughness);
+               if (pdfSpecGuide > 0.0) {
+                  SunVisibility shadow = traceSunVisibility(shadowOrigin, guideDir, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, vec3(1.0), shadowStartsInWater);
+                  if (shadow.visible) {
+                     vec3 brdf = evalBRDF(N, V, guideDir, diffuseAlbedo, roughness, metallic, F0, F82tint);
+                     float pdfBRDF_at = specularProb * pdfSpecGuide
+                           + (1.0 - specularProb) * gNdotL / PI;
+                     float wGuide = (specularGuideSampleCount * pdfSpecGuide)
+                           / (pdfNEE_sun + pdfBRDF_at + specularGuideSampleCount * pdfSpecGuide);
+
+                     radiance += wGuide * surfaceThroughput * brdf * gNdotL
+                           * sunRadiance * lightTint * shadow.transmittance
+                           * atmosphereTransmittance(shadow.finalDir)
+                           / (pdfSpecGuide * specularGuideSampleCount);
+                  }
+               }
+            }
+         }
+      }
+
       vec3 causticAxis = waterCausticSearchAxis(lightDir, shadowStartsInWater);
       if (dot(N, causticAxis) > 0.0) {
          float causticHalfAngle = max(sunHalfAngle, GLASS_CAUSTIC_CONE_DEGREES * (PI / 180.0));
@@ -745,7 +782,8 @@ void main() {
          SunVisibility shadow = traceSunVisibility(shadowOrigin, L_sample, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, vec3(1.0), shadowStartsInWater);
          if (shadow.visible) {
             vec3 brdfAtSun = evalBRDF(N, V, L_sample, diffuseAlbedo, roughness, metallic, F0, F82tint);
-            float wBRDF = pdfBRDF_marginal / (pdfBRDF_marginal + pdfNEE_sun);
+            float pdfSpecGuide_at = pdfGGXVNDFL(N, V, L_sample, roughness);
+            float wBRDF = pdfBRDF_marginal / (pdfBRDF_marginal + pdfNEE_sun + specularGuideSampleCount * pdfSpecGuide_at);
             radiance += wBRDF * surfaceThroughput * brdfAtSun * NdotL_sample
                   * sunRadiance * lightTint * shadow.transmittance
                   * atmosphereTransmittance(shadow.finalDir)

@@ -25,6 +25,8 @@ layout(location = 1) out vec4 normalOut;
 layout(location = 2) out vec4 albedoOut;
 
 #ifdef GBUFFERS_HAS_LABPBR
+#include "/lib/core/normal-map.glsl"
+
 float labPBREmission(vec4 specularSample) {
    return (specularSample.a >= (254.5 / 255.0)) ? 0.0 : specularSample.a;
 }
@@ -39,9 +41,7 @@ vec3 safeTangent(vec3 normal, vec3 tangent) {
 }
 
 vec3 decodeLabPBRNormal(vec4 normalSample, vec3 geomNormal, vec4 tangentSample) {
-   vec2 nxy = normalSample.rg * 2.0 - 1.0;
-   nxy.y = -nxy.y;
-   vec3 tangentNormal = normalize(vec3(nxy, sqrt(max(1.0 - dot(nxy, nxy), 0.00001))));
+   vec3 tangentNormal = decodeMinecraftNormalMap(normalSample);
 
    vec3 normal = normalize(geomNormal);
    vec3 tangent = safeTangent(normal, tangentSample.xyz);
