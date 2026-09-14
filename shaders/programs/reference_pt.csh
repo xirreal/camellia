@@ -1,4 +1,4 @@
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(local_size_x = 8, local_size_y = 4, local_size_z = 1) in;
 
 layout(rgba16f) uniform writeonly image2D colorimg1;
 layout(rgba32f) uniform writeonly image2D colorimg5;
@@ -17,14 +17,11 @@ uniform sampler2D specularAtlas;
 uniform int isEyeInWater;
 
 uniform int randomSeed;
-uniform float frameTimeCounter;
-
-uniform float near;
 
 #include "/lib/core/storage.glsl"
 #include "/lib/bvh/hploc.glsl"
-#include "/lib/core/encoding.glsl"
 #include "/lib/core/noise.glsl"
+#define BVH_WG_SIZE 32
 #define CONTROL_BUFFER_QUALIFIERS restrict
 #include "/lib/bvh/raytrace.glsl"
 #include "/lib/atmosphere/atmosphere.glsl"
@@ -33,7 +30,7 @@ uniform float near;
 #include "/lib/pt/materials.glsl"
 #include "/lib/pt/brdf.glsl"
 
-const int MAX_BOUNCES = 3;
+const int MAX_BOUNCES = 8;
 const float SHADOW_MAX_DIST = 256.0;
 
 #define DOF_ENABLED
@@ -48,6 +45,7 @@ const float WATER_IOR = 1.33;
 const float WATER_WAVE_STRENGTH = 0.1;
 
 #define GLASS_CAUSTICS
+#define GLASS_CAUSTIC_DISPERSION
 #define GLASS_CAUSTIC_SAMPLES 1        //[0 1 2 4]
 #define GLASS_CAUSTIC_CONE_DEGREES 4.0 //[1.0 2.0 4.0 8.0 12.0 16.0]
 #define GLASS_CAUSTIC_FILTER 4.0       //[1.0 2.0 4.0 8.0]
@@ -110,13 +108,21 @@ float glassReferenceIOR() {
    return sellmeierIOR(GLASS_REFERENCE_WAVELENGTH, B, C);
 }
 
-vec3 glassSpectralSample(out float channelIOR) {
+float waterSpectralIOR(float wavelengthNm) {
+   const float WATER_CAUCHY_B = 0.003;
+   float wavelengthUm = wavelengthNm * 1e-3;
+   float referenceUm = GLASS_REFERENCE_WAVELENGTH * 1e-3;
+   return WATER_IOR + WATER_CAUCHY_B * (1.0 / (wavelengthUm * wavelengthUm) - 1.0 / (referenceUm * referenceUm));
+}
+
+vec3 causticSpectralSample(out float glassChannelIOR, out float waterChannelIOR) {
    int wl = int(rand() * float(GLASS_BIN_COUNT));
    wl = min(wl, GLASS_BIN_COUNT - 1);
 
    vec3 B, C;
    glassCoeffs_N_BK7(B, C);
-   channelIOR = sellmeierIOR(GLASS_WL_BIN[wl], B, C);
+   glassChannelIOR = sellmeierIOR(GLASS_WL_BIN[wl], B, C);
+   waterChannelIOR = waterSpectralIOR(GLASS_WL_BIN[wl]);
    return GLASS_MASK_BIN[wl] * float(GLASS_BIN_COUNT);
 }
 
@@ -132,7 +138,7 @@ vec4 sampleHitTexture(TraceResult hit) {
    #endif
 }
 
-vec3 refractiveShadeNormal(TraceResult hit, vec3 incidentDir, vec3 hitPoint, vec3 baseColor) {
+vec3 refractiveShadeNormal(TraceResult hit, vec3 incidentDir, vec3 baseColor) {
    vec3 shadeNormal = hit.normal;
    float roughness;
    float metallic;
@@ -142,7 +148,7 @@ vec3 refractiveShadeNormal(TraceResult hit, vec3 incidentDir, vec3 hitPoint, vec
    float ao;
    float sssAmount;
 
-   decodeLabPBR(hitPoint, hit.uv, hit.normal, hit.quadID, hit.triIndex, hit.textureID, baseColor,
+   decodeLabPBR(hit.uv, hit.normal, hit.quadID, hit.triIndex, hit.textureID, baseColor,
       shadeNormal, roughness, metallic, F0, F82tint, emissionMap, ao, sssAmount);
 
    if (dot(shadeNormal, incidentDir) > 0.0) shadeNormal = -shadeNormal;
@@ -151,7 +157,7 @@ vec3 refractiveShadeNormal(TraceResult hit, vec3 incidentDir, vec3 hitPoint, vec
    return normalize(mix(hit.normal, shadeNormal, normalWeight));
 }
 
-SunVisibility traceSunVisibility(vec3 ro, vec3 rd, float maxDist, vec3 lightDir, float sunCosThreshold, float glassIOR, vec3 spectralWeight, bool startInsideWater) {
+SunVisibility traceSunVisibility(vec3 ro, vec3 rd, float maxDist, vec3 lightDir, float sunCosThreshold, float glassIOR, float waterIOR, vec3 spectralWeight, bool startInsideWater) {
    SunVisibility res;
    res.transmittance = vec3(1.0);
    res.finalDir = rd;
@@ -208,7 +214,7 @@ SunVisibility traceSunVisibility(vec3 ro, vec3 rd, float maxDist, vec3 lightDir,
          vec3 N = normalize(vec3(waveN.x * sign, waveN.y * sign, waveN.z * sign));
          if (dot(N, dir) > 0.0) N = -N;
 
-         float eta = insideWaterShadow ? WATER_IOR : (1.0 / WATER_IOR);
+         float eta = insideWaterShadow ? waterIOR : (1.0 / waterIOR);
          vec3 refracted = refract(dir, N, eta);
          if (refractWasTIR(refracted)) {
             res.visible = false;
@@ -216,8 +222,12 @@ SunVisibility traceSunVisibility(vec3 ro, vec3 rd, float maxDist, vec3 lightDir,
             return res;
          }
 
-         float fresnel = fresnelSchlick(abs(dot(dir, N)), WATER_IOR);
+         float fresnel = fresnelSchlick(abs(dot(dir, N)), waterIOR);
          res.transmittance *= 1.0 - fresnel;
+         if (!spectralApplied) {
+            res.transmittance *= spectralWeight;
+            spectralApplied = true;
+         }
          insideWaterShadow = !insideWaterShadow;
          res.refracted = true;
          dir = normalize(refracted);
@@ -231,7 +241,7 @@ SunVisibility traceSunVisibility(vec3 ro, vec3 rd, float maxDist, vec3 lightDir,
          return res;
       }
 
-      vec3 N = refractiveShadeNormal(hit, dir, hitPoint, surfaceTint);
+      vec3 N = refractiveShadeNormal(hit, dir, surfaceTint);
       float eta = insideGlass ? glassIOR : (1.0 / glassIOR);
       vec3 refracted = refract(dir, N, eta);
       if (refractWasTIR(refracted)) {
@@ -462,8 +472,7 @@ void main() {
       float emissionMap;
       float ao;
       float sssAmount;
-      vec3 c_hitPos = origin + bounceDir * bounceHit.t;
-      decodeLabPBR(c_hitPos, bounceHit.uv, bounceHit.normal, bounceHit.quadID, bounceHit.triIndex, bounceHit.textureID, bounceAlbedo, shadeNormal, roughness, metallic, F0, F82tint, emissionMap, ao, sssAmount);
+      decodeLabPBR(bounceHit.uv, bounceHit.normal, bounceHit.quadID, bounceHit.triIndex, bounceHit.textureID, bounceAlbedo, shadeNormal, roughness, metallic, F0, F82tint, emissionMap, ao, sssAmount);
 
       vec3 diffuseAlbedo = bounceAlbedo * ao;
       vec3 hitPoint = origin + bounceDir * bounceHit.t;
@@ -515,18 +524,8 @@ void main() {
             hasFixedDir = true;
             continue;
          } else {
-            vec4 glassTexColor;
-            if (bounceHit.textureID == 0u) {
-               glassTexColor = texture(blockAtlas, bounceHit.uv);
-            } else {
-               #ifdef ENTITY_TEXTURES
-               glassTexColor = sampleEntityTexture(bounceHit.textureID, bounceHit.uv);
-               #else
-               glassTexColor = vec4(1.0);
-               #endif
-            }
-            float opacity = glassTexColor.a;
-            vec3 glassTexTint = mix(vec3(1.0), glassTexColor.rgb * glassTexColor.rgb, smoothstep(alphaTestRef, 0.5, opacity));
+            float opacity = texColor.a;
+            vec3 glassTexTint = mix(vec3(1.0), texColor.rgb * texColor.rgb, smoothstep(alphaTestRef, 0.5, opacity));
             vec3 glassColor = pow(max(glassTexTint * bounceHit.vertexData.rgb, vec3(0.0)), vec3(2.2));
 
             int wl = int(rand() * float(GLASS_BIN_COUNT));
@@ -635,7 +634,7 @@ void main() {
          bool ngVisible = dot(N_geom, sampleDir) > 0.0;
 
          if (frontLit && sNdotL > 0.0 && ngVisible) {
-            SunVisibility shadow = traceSunVisibility(shadowOrigin, sampleDir, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, vec3(1.0), shadowStartsInWater);
+            SunVisibility shadow = traceSunVisibility(shadowOrigin, sampleDir, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, WATER_IOR, vec3(1.0), shadowStartsInWater);
             if (shadow.visible) {
                vec3 brdf = evalBRDF(N, V, sampleDir, diffuseAlbedo, roughness, metallic, F0, F82tint);
                // Marginal BRDF pdf at the NEE direction (for balance heuristic).
@@ -651,7 +650,7 @@ void main() {
 
          if (backLit) {
             vec3 sssOrigin = offsetRayOrigin(hitPoint, -N);
-            SunVisibility shadow = traceSunVisibility(sssOrigin, sampleDir, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, vec3(1.0), shadowStartsInWater);
+            SunVisibility shadow = traceSunVisibility(sssOrigin, sampleDir, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, WATER_IOR, vec3(1.0), shadowStartsInWater);
             if (shadow.visible) {
                float wrap = max(-sNdotL, 0.0);
                vec3 sssColor = diffuseAlbedo * (1.0 - metallic);
@@ -672,7 +671,7 @@ void main() {
             if (gNdotL > 0.0 && dot(N_geom, guideDir) > 0.0 && dot(guideDir, lightDir) >= sunCosThreshold) {
                float pdfSpecGuide = pdfGGXVNDFL(N, V, guideDir, roughness);
                if (pdfSpecGuide > 0.0) {
-                  SunVisibility shadow = traceSunVisibility(shadowOrigin, guideDir, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, vec3(1.0), shadowStartsInWater);
+                  SunVisibility shadow = traceSunVisibility(shadowOrigin, guideDir, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, WATER_IOR, vec3(1.0), shadowStartsInWater);
                   if (shadow.visible) {
                      vec3 brdf = evalBRDF(N, V, guideDir, diffuseAlbedo, roughness, metallic, F0, F82tint);
                      float pdfBRDF_at = specularProb * pdfSpecGuide
@@ -708,9 +707,13 @@ void main() {
             float cNdotL = dot(N, causticDir);
 
             if (cNdotL > 0.0 && dot(N_geom, causticDir) > 0.0) {
-               float channelIOR;
-               vec3 spectralWeight = glassSpectralSample(channelIOR);
-               SunVisibility caustic = traceSunVisibility(shadowOrigin, causticDir, SHADOW_MAX_DIST, lightDir, causticSunCosThreshold, channelIOR, spectralWeight, shadowStartsInWater);
+               float glassChannelIOR = referenceGlassIOR;
+               float waterChannelIOR = WATER_IOR;
+               vec3 spectralWeight = vec3(1.0);
+               #ifdef GLASS_CAUSTIC_DISPERSION
+               spectralWeight = causticSpectralSample(glassChannelIOR, waterChannelIOR);
+               #endif
+               SunVisibility caustic = traceSunVisibility(shadowOrigin, causticDir, SHADOW_MAX_DIST, lightDir, causticSunCosThreshold, glassChannelIOR, waterChannelIOR, spectralWeight, shadowStartsInWater);
                float minCausticBend = max(sunHalfAngle, 0.002);
                bool bentPath = dot(caustic.finalDir, causticDir) < cos(minCausticBend);
 
@@ -779,7 +782,7 @@ void main() {
       }
 
       if (frontLit && dot(L_sample, lightDir) >= sunCosThreshold) {
-         SunVisibility shadow = traceSunVisibility(shadowOrigin, L_sample, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, vec3(1.0), shadowStartsInWater);
+         SunVisibility shadow = traceSunVisibility(shadowOrigin, L_sample, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, WATER_IOR, vec3(1.0), shadowStartsInWater);
          if (shadow.visible) {
             vec3 brdfAtSun = evalBRDF(N, V, L_sample, diffuseAlbedo, roughness, metallic, F0, F82tint);
             float pdfSpecGuide_at = pdfGGXVNDFL(N, V, L_sample, roughness);

@@ -15,7 +15,8 @@ uniform int textureReloadCount;
 #define CONTROL_BUFFER_QUALIFIERS restrict readonly
 #include "/lib/buffers/control.glsl"
 #include "/lib/scene/scene-read.glsl"
-#include "/lib/buffers/quad-data.glsl"
+#define QUAD_COUNT_BUFFER_QUALIFIERS restrict readonly
+#include "/lib/buffers/quad-count.glsl"
 #include "/lib/buffers/morton.glsl"
 #include "/lib/buffers/texture-infos.glsl"
 #include "/lib/bvh/hploc.glsl"
@@ -160,22 +161,6 @@ void main() {
    #endif
 
    #ifdef ENABLE_QUAD_VALIDATION
-   printLine();
-   text.fgCol = vec4(1.0);
-   printString((_B, _u, _i, _l, _d, _space, _E, _r, _r, _o, _r, _s, _colon));
-   printLine();
-
-   if (control.buildError == ERROR_OUT_OF_BOUNDS) {
-      text.fgCol = vec4(0.9, 0.2, 0.25, 1.0);
-      printString((_O, _u, _t, _space, _o, _f, _space, _b, _o, _u, _n, _d, _s));
-   } else if (control.buildError == ERROR_TIMEOUT) {
-      text.fgCol = vec4(0.9, 0.6, 0.1, 1.0);
-      printString((_T, _i, _m, _e, _o, _u, _t));
-   } else {
-      text.fgCol = vec4(0.4, 1.0, 0.4, 1.0);
-      printString((_n, _o, _n, _e));
-   }
-
    printLine();
    text.fgCol = vec4(1.0);
    printString((_R, _o, _o, _t, _colon));

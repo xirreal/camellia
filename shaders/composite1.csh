@@ -1,74 +1,48 @@
 #version 460
 
-#include "/lib/core/settings.glsl"
 #include "/lib/core/storage.glsl"
 #include "/lib/buffers/control.glsl"
-#include "/lib/buffers/quad-data.glsl"
-#include "/lib/buffers/quad-pos-read.glsl"
+#include "/lib/scene/scene-read.glsl"
+#define AABB_BUFFER_QUALIFIERS restrict readonly
+#include "/lib/buffers/aabb.glsl"
+#define MORTON_CODE_BUFFER_QUALIFIERS restrict writeonly
+#include "/lib/buffers/morton.glsl"
+#define CLUSTER_INDEX_BUFFER_QUALIFIERS restrict writeonly
+#include "/lib/buffers/cluster-index.glsl"
+#define SORT_SCRATCH_BUFFER_QUALIFIERS restrict writeonly
+#include "/lib/buffers/sort-scratch.glsl"
 #include "/lib/bvh/hploc.glsl"
 
-const ivec3 workGroups = ivec3(int((MAX_QUAD_COUNT + 63) / 64), 1, 1);
-
-layout(local_size_x = 64) in;
-
-bool hasNanInf(vec3 v) {
-   return any(isnan(v)) || any(isinf(v));
-}
-
-float triangleAreaSq(vec3 a, vec3 b, vec3 c) {
-   vec3 cr = cross(b - a, c - a);
-   return dot(cr, cr);
-}
+layout(local_size_x = 256) in;
 
 void main() {
    uint gID = gl_GlobalInvocationID.x;
-   uint numQuads = min(quadCount, uint(MAX_QUAD_COUNT));
 
-   if (gID >= numQuads) return;
+   uint numQuads = 0u;
+   vec3 sceneMin = vec3(0.0);
+   vec3 invSceneRange = vec3(0.0);
+   if (subgroupElect()) {
+      numQuads = control.sortTotal;
+      sceneMin = getSceneMin();
+      vec3 sceneMax = getSceneMax();
+      invSceneRange = 1.0 / max(sceneMax - sceneMin, vec3(1e-9));
+   }
+   numQuads = subgroupBroadcastFirst(numQuads);
+   sceneMin = subgroupBroadcastFirst(sceneMin);
+   invSceneRange = subgroupBroadcastFirst(invSceneRange);
 
-   QuadPositions qp = quadPositions[gID];
-   vec3 p0, p1, p2, p3;
-   unpackQuadPositions(qp, p0, p1, p2, p3);
-
-   // vertex nan/inf checks
-   if (hasNanInf(p0) || hasNanInf(p1) || hasNanInf(p2) || hasNanInf(p3)) {
-      atomicAdd(control.quadErrNanInf, 1u);
+   if (gID < SORT_GLOBAL_HIST_SIZE) {
+      sortScratch[SORT_SCRATCH_GLOBAL_HIST + gID] = 0u;
    }
 
-   // quad extent sanity check
-   vec3 qMin = min(min(p0, p1), min(p2, p3));
-   vec3 qMax = max(max(p0, p1), max(p2, p3));
-   vec3 extent = qMax - qMin;
-   if (extent.x > VALIDATION_MAX_QUAD_EXTENT || extent.y > VALIDATION_MAX_QUAD_EXTENT || extent.z > VALIDATION_MAX_QUAD_EXTENT) {
-      atomicAdd(control.quadErrExtent, 1u);
-   }
+   if (gID < numQuads) {
+      AABB box = aabbs[gID];
+      vec3 quadCenter = (aabbMin(box) + aabbMax(box)) * 0.5;
 
-   // coplanar quad (should fail on fluids)
-   vec3 n1 = cross(p1 - p0, p2 - p0);
-   vec3 n2 = cross(p2 - p0, p3 - p0);
-   float len1 = length(n1);
-   float len2 = length(n2);
-   if (len1 > 1e-10 && len2 > 1e-10) {
-      n1 /= len1;
-      n2 /= len2;
-      float coplanarity = dot(n1, n2);
-      if (coplanarity < (1.0 - VALIDATION_COPLANAR_THRESHOLD)) {
-         atomicAdd(control.quadErrCoplanar, 1u);
-      }
-   }
+      vec3 normCentroid = (quadCenter - sceneMin) * invSceneRange;
+      uint morton = encodeMorton3D(normCentroid);
 
-   // degenerate quad (why do i get a few of these?)
-   float area1sq = triangleAreaSq(p0, p1, p2);
-   float area2sq = triangleAreaSq(p0, p2, p3);
-   if (area1sq < VALIDATION_DEGEN_AREA_THRESHOLD || area2sq < VALIDATION_DEGEN_AREA_THRESHOLD) {
-      atomicAdd(control.quadErrDegenerate, 1u);
-   }
-
-   // collapsed quad
-   float d01 = length(p1 - p0);
-   float d02 = length(p2 - p0);
-   float d03 = length(p3 - p0);
-   if (d01 < 1e-10 && d02 < 1e-10 && d03 < 1e-10) {
-      atomicAdd(control.quadErrCollapsed, 1u);
+      mortonCodes[gID] = morton;
+      clusterIndices[gID] = makeLeafID(gID);
    }
 }

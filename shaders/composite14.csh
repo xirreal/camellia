@@ -1,5 +1,6 @@
 #version 460
 
+#include "/lib/core/settings.glsl"
 #include "/lib/core/storage.glsl"
 #define CONTROL_BUFFER_QUALIFIERS restrict readonly
 #include "/lib/buffers/control.glsl"

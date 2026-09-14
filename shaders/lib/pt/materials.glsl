@@ -5,16 +5,18 @@
 #include "/lib/bvh/raytrace.glsl"
 
 void computeTangentBasis(uint quadID, int triIndex, vec3 geomNormal, out vec3 tangent, out vec3 bitangent) {
+   QuadGeometry qg = quadGeometry[quadID];
+   QuadAttributes qa = quadAttributes[quadID];
    vec3 p0, p1, p2, p3;
-   decodeQuadPositions(quadID, p0, p1, p2, p3);
+   unpackQuadGeometryPositions(qg, p0, p1, p2, p3);
 
    vec3 tp0 = p0;
    vec3 tp1 = (triIndex == 0) ? p1 : p2;
    vec3 tp2 = (triIndex == 0) ? p2 : p3;
 
-   vec2 uv0 = quadUV(quadID, 0u);
-   vec2 uv1 = (triIndex == 0) ? quadUV(quadID, 1u) : quadUV(quadID, 2u);
-   vec2 uv2 = (triIndex == 0) ? quadUV(quadID, 2u) : quadUV(quadID, 3u);
+   vec2 uv0 = qaUV(qa, 0u);
+   vec2 uv1 = (triIndex == 0) ? qaUV(qa, 1u) : qaUV(qa, 2u);
+   vec2 uv2 = (triIndex == 0) ? qaUV(qa, 2u) : qaUV(qa, 3u);
 
    vec3 edge1 = tp1 - tp0;
    vec3 edge2 = tp2 - tp0;
@@ -73,7 +75,7 @@ void adobeMetalLookup(int metalID, vec3 baseColor, out vec3 F0, out vec3 F82tint
    }
 }
 
-void decodeLabPBR(vec3 hitPos, vec2 uv, vec3 geomNormal, uint quadID, int triIndex, uint textureID, vec3 baseColor, out vec3 normal, out float roughness, out float metallic, out vec3 F0, out vec3 F82tint, out float emission, out float ao, out float sss) {
+void decodeLabPBR(vec2 uv, vec3 geomNormal, uint quadID, int triIndex, uint textureID, vec3 baseColor, out vec3 normal, out float roughness, out float metallic, out vec3 F0, out vec3 F82tint, out float emission, out float ao, out float sss) {
    vec4 nTexSample;
    vec4 spec;
 

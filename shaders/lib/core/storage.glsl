@@ -1,11 +1,10 @@
 #ifndef STORAGE_INCLUDE_GUARD
 #define STORAGE_INCLUDE_GUARD
 
+#include "/lib/core/settings.glsl"
+
 uniform float far;
 
-#ifdef MC_GL_VENDOR_NVIDIA
-#extension GL_NV_gpu_shader5 : require
-#endif
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_arithmetic : require
 #extension GL_KHR_shader_subgroup_ballot : require
@@ -49,17 +48,6 @@ vec3 unpackRGB565(uint p) {
    );
 }
 
-struct QuadData {
-   uint encodedMaterial; // bits 0-23: blockID, bits 24-27: emission, bit 28: alphaTested, bit 29: translucent, bit 30: player
-   uint textureID; // 32 bit but only 24 bits used, index into texture map buffer
-   uint tint01; // low 16 = v0 RGB565, high 16 = v1 RGB565
-   uint tint23; // low 16 = v2 RGB565, high 16 = v3 RGB565
-   uint uv0; // packHalf2x16(v0.uv)
-   uint uv1; // packHalf2x16(v1.uv)
-   uint uv2; // packHalf2x16(v2.uv)
-   uint uv3; // packHalf2x16(v3.uv)
-}; // 32 bytes
-
 struct AABB {
    float minX;
    float minY;
@@ -70,27 +58,61 @@ struct AABB {
 }; // 24 bytes
 
 struct BVH2Node {
-   vec3 c0Min;
+#if BVH_WIDTH == 2
+   vec3 leftMin;
    uint leftChild;
-   vec3 c0Max;
+   vec3 leftMax;
    uint rightChild;
-   vec3 c1Min;
-   float _pad0;
-   vec3 c1Max;
-   float _pad1;
-}; // 64 bytes
+   vec3 rightMin;
+   uint pad0;
+   vec3 rightMax;
+   uint pad1;
+#else
+   vec3 boundsMin;
+   uint leftChild;
+   vec3 boundsMax;
+   uint rightChild;
+#endif
+}; // 64-byte direct traversal node, or 32-byte intermediate for BVH4 conversion.
 
-struct QuadPositions {
-   vec4 p0p1x;    // p0.xyz, p1.x
-   vec4 p1yzp2xy; // p1.yz, p2.xy
-   vec4 p2zp3;    // p2.z, p3.xyz
-}; // 48 bytes
+struct BVH4Node {
+   vec4 minX;
+   vec4 minY;
+   vec4 minZ;
+   vec4 maxX;
+   vec4 maxY;
+   vec4 maxZ;
+   uvec4 children;
+}; // 112 bytes; unquantized bounds
 
-void unpackQuadPositions(QuadPositions qp, out vec3 p0, out vec3 p1, out vec3 p2, out vec3 p3) {
-   p0 = qp.p0p1x.xyz;
-   p1 = vec3(qp.p0p1x.w, qp.p1yzp2xy.xy);
-   p2 = vec3(qp.p1yzp2xy.zw, qp.p2zp3.x);
-   p3 = qp.p2zp3.yzw;
+struct QuadGeometry {
+   uint p0x;
+   uint p0y;
+   uint p0z;
+   uint d1xy;
+   uint d1zD2x;
+   uint d2yz;
+   uint d3xy;
+   uint d3zTint;
+}; // 32 bytes
+
+struct QuadAttributes {
+   uint materialTexture; // block 0-7, material 8-14, texture 15-30, degenerate triangle 31
+   uint uv0;
+   uint uv1;
+   uint uv2;
+}; // 16 bytes
+
+void unpackQuadGeometryPositions(QuadGeometry qd, out vec3 p0, out vec3 p1, out vec3 p2, out vec3 p3) {
+   p0 = uintBitsToFloat(uvec3(qd.p0x, qd.p0y, qd.p0z));
+   vec2 d1xy = unpackHalf2x16(qd.d1xy);
+   vec2 d1zD2x = unpackHalf2x16(qd.d1zD2x);
+   vec2 d2yz = unpackHalf2x16(qd.d2yz);
+   vec2 d3xy = unpackHalf2x16(qd.d3xy);
+   float d3z = unpackHalf2x16(qd.d3zTint & 0xFFFFu).x;
+   p1 = p0 + vec3(d1xy, d1zD2x.x);
+   p2 = p0 + vec3(d1zD2x.y, d2yz);
+   p3 = p0 + vec3(d3xy, d3z);
 }
 
 AABB makeAABB(vec3 bMin, vec3 bMax) {
@@ -112,13 +134,8 @@ const uint INVALID_ID = 0xFFFFFFFFu;
 const uint RADIX_BITS = 8u;
 const uint RADIX = 1u << RADIX_BITS;
 const uint WAVE_SIZE = 32u;
-#ifdef MC_GL_VENDOR_AMD
-#define HPLOC_WG_SIZE 64
-#else
-#define HPLOC_WG_SIZE 32
-#endif
+#define HPLOC_WG_SIZE 128
 const uint SORT_WG_SIZE = 256u;
-const uint SORT_MAX_WORKGROUPS = (MAX_QUAD_COUNT + SORT_WG_SIZE - 1u) / SORT_WG_SIZE;
 const uint SORT_RADIX_MASK = RADIX - 1u;
 const uint HALF_RADIX = RADIX >> 1u;
 const uint SORT_HALF_RADIX_MASK = HALF_RADIX - 1u;
@@ -143,8 +160,9 @@ uint sortPrepareWorkgroupsForQuadEnd(uint quadEnd) {
    return max(quadWorkgroups, SORT_GLOBAL_HIST_WORKGROUPS);
 }
 
-const uint MAX_TEXTURES = 65536u;
-const uint MAX_TEXTURE_DATA = 268435456u; // 1GiB of total data
+// IDs 0 and 65535 are reserved for the block atlas and fallback.
+const uint MAX_TEXTURES = 65534u;
+const uint MAX_TEXTURE_DATA = 16384u * 16384u; // RGBA8 image texels
 
 struct TextureInfo {
    uint key;

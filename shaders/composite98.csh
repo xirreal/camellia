@@ -35,7 +35,7 @@ void main() {
 
    if (coord.x >= int(viewWidth) || coord.y >= int(viewHeight)) return;
 
-   #if MODE == 2
+   #if MODE == 2 || MODE == 4
    vec3 color = texture(colortex5, vec2(coord + 0.5) / vec2(viewWidth, viewHeight)).rgb;
    #else
    vec3 hdr = texture(colortex5, vec2(coord + 0.5) / vec2(viewWidth, viewHeight)).rgb;

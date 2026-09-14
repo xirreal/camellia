@@ -1,70 +1,39 @@
 #ifndef TEXTURES_READ_INCLUDE_GUARD
 #define TEXTURES_READ_INCLUDE_GUARD
 
-#ifndef TEXTURE_INFOS_BUFFER_QUALIFIERS
-#define TEXTURE_INFOS_BUFFER_QUALIFIERS restrict readonly
-#endif
-#ifndef TEXTURE_DATA_BUFFER_QUALIFIERS
-#define TEXTURE_DATA_BUFFER_QUALIFIERS restrict readonly
-#endif
-
 #include "/lib/scene/textures-common.glsl"
 #include "/lib/buffers/texture-infos.glsl"
-#include "/lib/buffers/texture-data.glsl"
+
+#ifdef ENTITY_TEXTURES
+uniform sampler2D entityAtlas;
+#endif
+
+vec4 sampleEntityAtlas(uint textureID, vec2 uv, uint layer, vec4 fallback) {
+#ifdef ENTITY_TEXTURES
+   if (textureID == 0u || textureID > MAX_TEXTURES) return fallback;
+   TextureInfo entry = textureMap[textureID - 1u];
+   if (entry.baseOffset == INVALID_ID) return fallback;
+   uvec2 size = uvec2(entry.sizeX, entry.sizeY);
+   uvec2 texel = min(uvec2(clamp(uv, 0.0, 1.0) * vec2(size)), size - 1u);
+   uint address = entry.baseOffset + (layer * size.y + texel.y) * size.x + texel.x;
+   return texelFetch(entityAtlas, entityAtlasCoord(address), 0);
+#else
+   return fallback;
+#endif
+}
 
 vec4 sampleEntityTexture(uint textureID, vec2 uv) {
-   uint slot = textureID - 1u;
-   TextureInfo entry = textureMap[slot];
-
-   uv = clamp(uv, vec2(0.0), vec2(1.0));
-   ivec2 texel = clamp(
-         ivec2(uv * vec2(float(entry.sizeX), float(entry.sizeY))),
-         ivec2(0),
-         ivec2(int(entry.sizeX) - 1, int(entry.sizeY) - 1)
-      );
-
-   uint idx = morton2D(uint(texel.x), uint(texel.y));
-   return unpackUnorm4x8(textureData[entry.baseOffset + idx]);
+   return sampleEntityAtlas(textureID, uv, 0u, vec4(1.0));
 }
 
 #ifdef ENTITY_PBR
-
 vec4 sampleEntityNormal(uint textureID, vec2 uv) {
-   uint slot = textureID - 1u;
-   TextureInfo entry = textureMap[slot];
-
-   uint paddedDim = nextPow2(max(entry.sizeX, entry.sizeY));
-   uint texelCount = paddedDim * paddedDim;
-
-   uv = clamp(uv, vec2(0.0), vec2(1.0));
-   ivec2 texel = clamp(
-         ivec2(uv * vec2(float(entry.sizeX), float(entry.sizeY))),
-         ivec2(0),
-         ivec2(int(entry.sizeX) - 1, int(entry.sizeY) - 1)
-      );
-
-   uint idx = morton2D(uint(texel.x), uint(texel.y));
-   return unpackUnorm4x8(textureData[entry.baseOffset + texelCount + idx]);
+   return sampleEntityAtlas(textureID, uv, 1u, vec4(0.5, 0.5, 1.0, 1.0));
 }
 
 vec4 sampleEntitySpecular(uint textureID, vec2 uv) {
-   uint slot = textureID - 1u;
-   TextureInfo entry = textureMap[slot];
-
-   uint paddedDim = nextPow2(max(entry.sizeX, entry.sizeY));
-   uint texelCount = paddedDim * paddedDim;
-
-   uv = clamp(uv, vec2(0.0), vec2(1.0));
-   ivec2 texel = clamp(
-         ivec2(uv * vec2(float(entry.sizeX), float(entry.sizeY))),
-         ivec2(0),
-         ivec2(int(entry.sizeX) - 1, int(entry.sizeY) - 1)
-      );
-
-   uint idx = morton2D(uint(texel.x), uint(texel.y));
-   return unpackUnorm4x8(textureData[entry.baseOffset + 2u * texelCount + idx]);
+   return sampleEntityAtlas(textureID, uv, 2u, vec4(0.0, 0.04, 0.0, 0.0));
 }
-
 #endif
 
 #endif

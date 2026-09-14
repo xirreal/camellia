@@ -8,6 +8,9 @@
    https://gpuopen.com/download/HPLOC.pdf
    GLSL port based on Slang implementation by natevm
    https://gist.github.com/natevm/6618402427ad6466bf555d67602adfa8
+   Copyright (c) 2024 Nathan V. Morrical. Upstream MIT terms:
+   licenses/HPLOC-MIT.txt. Embree-derived offset helpers: Apache-2.0.
+   Modified GLSL adaptation; see THIRD_PARTY_NOTICES.md for full credits.
 */
 
 // Cluster ID layout: bit 31 = internal (BVH2 node) flag, bits 0-30 = primID
@@ -15,11 +18,16 @@
 #define CLUSTER_INTERNAL_BIT 0x80000000u
 #define CLUSTER_PRIM_MASK    0x7FFFFFFFu
 
-#define SEARCH_RADIUS_SHIFT 3
+#if HPLOC_SEARCH_RADIUS_SHIFT < 0
+#if MODE == 4
+#define SEARCH_RADIUS_SHIFT 0
+#else
+#define SEARCH_RADIUS_SHIFT 1
+#endif
+#else
+#define SEARCH_RADIUS_SHIFT HPLOC_SEARCH_RADIUS_SHIFT
+#endif
 #define SEARCH_RADIUS (1u << SEARCH_RADIUS_SHIFT)
-
-#define ERROR_OUT_OF_BOUNDS 1u
-#define ERROR_TIMEOUT 2u
 
 uint makeLeafID(uint primID) {
    return primID & CLUSTER_PRIM_MASK;
@@ -44,7 +52,7 @@ float computeSurfaceArea(vec3 bMin, vec3 bMax) {
 
 float computeMergedSurfaceArea(vec3 aMin, vec3 aMax, vec3 bMin, vec3 bMax) {
    vec3 d = max(aMax, bMax) - min(aMin, bMin);
-   return max(2.0 * (d.x * d.y + d.x * d.z + d.y * d.z), 0.0);
+   return d.x * d.y + d.x * d.z + d.y * d.z;
 }
 
 uint encodeRelativeOffset(uint ID, uint neighbor) {

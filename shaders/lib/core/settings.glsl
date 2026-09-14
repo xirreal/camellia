@@ -1,8 +1,21 @@
 #ifndef SETTINGS_INCLUDE_GUARD
 #define SETTINGS_INCLUDE_GUARD
 
-// mode 0 = ReSTIR, mode 1 = Reference PT, mode 2 = BVH debug, mode 3 = nothing
-#define MODE 0 //[0 1 2 3]
+// mode 1 = Reference PT, mode 2 = BVH debug, mode 3 = nothing, mode 4 = Simple RT
+#define MODE 1 //[1 2 3 4]
+
+#define BVH_WIDTH 4 //[2 4]
+// -1 selects radius 1 for Simple RT and radius 2 for path tracing/debug.
+#define HPLOC_SEARCH_RADIUS_SHIFT -1 //[-1 0 1 2 3]
+
+// Stack storage: 0 = shared memory, 1 = image, 2 = invocation-local array
+#define BVH_STACK_MODE 0 //[0 1 2]
+
+#define ENTITY_TEXTURES
+//#define ENTITY_PBR
+
+#define ENABLE_GBUFFER_CAPTURE
+#define SHADOW_CAPTURE_DISTANCE 128 //[128 256 512 1024]
 
 //#define ENABLE_DEBUG_OVERLAY
 //#define ENABLE_SORT_VALIDATION

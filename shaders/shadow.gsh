@@ -42,29 +42,10 @@ void main() {
    uint lane = subgroupBallotExclusiveBitCount(ballot);
    uint quadID = baseQuad + lane;
 
-   writeQuadMaterial(quadID, vBlockId[i0], 0u, vEmission[i0], false, false, false);
+   writeQuadRecords(
+      quadID, vPlayerPos[i0], vPlayerPos[i1], vPlayerPos[i2], pos3,
+      vCoord[i0], vCoord[i1], vCoord[i2], vColor[i0],
+      vBlockId[i0], 0u, vEmission[i0], false, false, false
+   );
 
-   writeQuadVertex(quadID, 0u, vPlayerPos[i0], vCoord[i0], vColor[i0]);
-   writeQuadVertex(quadID, 1u, vPlayerPos[i1], vCoord[i1], vColor[i1]);
-   writeQuadVertex(quadID, 2u, vPlayerPos[i2], vCoord[i2], vColor[i2]);
-   writeQuadVertex(quadID, 3u, pos3, uv3, vColor[i2]);
-
-   vec3 localMin = min(min(vPlayerPos[i0], vPlayerPos[i1]), min(vPlayerPos[i2], pos3));
-   vec3 localMax = max(max(vPlayerPos[i0], vPlayerPos[i1]), max(vPlayerPos[i2], pos3));
-
-   vec3 sMin = subgroupMin(localMin);
-   vec3 sMax = subgroupMax(localMax);
-
-   if (subgroupElect()) {
-      uvec3 uMin = encodeBound(sMin);
-      uvec3 uMax = encodeBound(sMax);
-
-      atomicMin(control.boundsMinX, uMin.x);
-      atomicMin(control.boundsMinY, uMin.y);
-      atomicMin(control.boundsMinZ, uMin.z);
-
-      atomicMax(control.boundsMaxX, uMax.x);
-      atomicMax(control.boundsMaxY, uMax.y);
-      atomicMax(control.boundsMaxZ, uMax.z);
-   }
 }

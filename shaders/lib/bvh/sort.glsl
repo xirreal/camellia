@@ -5,6 +5,7 @@
    Device-level 8-bit LSD radix sort, adapted from:
    https://github.com/b0nes164/GPUSorting
    SPDX-License-Identifier: MIT
+   Copyright (c) 2024 Thomas Smith. See licenses/GPUSorting.txt.
 */
 
 #ifndef CONTROL_BUFFER_QUALIFIERS
@@ -36,10 +37,6 @@ uint sortGetThreadBlocks() {
 
 uint sortExtractDigit(uint key) {
    return (key >> (SORT_PASS * RADIX_BITS)) & SORT_RADIX_MASK;
-}
-
-uint sortExtractDigitAtShift(uint key, uint shift) {
-   return (key >> shift) & SORT_RADIX_MASK;
 }
 
 uint sortExtractPackedIndex(uint key) {
@@ -293,6 +290,7 @@ void sortExclusiveThreadBlockScanFallback(uint localID, uint digitBucket, uint t
 }
 
 void sortScan() {
+   if (control.sceneFrozen != 0u) return;
    uint localID = gl_LocalInvocationID.x;
    uint digitBucket = gl_WorkGroupID.x;
    uint threadBlocks = sortGetThreadBlocks();

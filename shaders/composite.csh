@@ -1,290 +1,66 @@
 #version 460
 
-/*
-   H-PLOC: Hierarchical Parallel Locally-Ordered Clustering
-   for Bounding Volume Hierarchy Construction
-
-   GLSL port based on Slang implementation by natevm
-   https://gist.github.com/natevm/6618402427ad6466bf555d67602adfa8
-*/
-
 #include "/lib/core/storage.glsl"
 #include "/lib/buffers/control.glsl"
-#include "/lib/buffers/cluster-index.glsl"
-#include "/lib/buffers/parent-id.glsl"
-#define BVH2_NODE_BUFFER_QUALIFIERS restrict
-#include "/lib/buffers/bvh2-node.glsl"
-#include "/lib/bvh/hploc-build.glsl"
+#define QUAD_COUNT_BUFFER_QUALIFIERS restrict readonly
+#include "/lib/buffers/quad-count.glsl"
+#include "/lib/buffers/quad-geometry.glsl"
+#define AABB_BUFFER_QUALIFIERS restrict writeonly
+#include "/lib/buffers/aabb.glsl"
 
-layout(local_size_x = HPLOC_WG_SIZE) in;
+const ivec3 workGroups = ivec3(256, 1, 1);
 
-shared uint cached_neighbor[HPLOC_WG_SIZE];
-shared uint compactCI[HPLOC_WG_SIZE];
-shared vec3 compactMin[HPLOC_WG_SIZE];
-shared vec3 compactMax[HPLOC_WG_SIZE];
-
-uint hplocSubgroupSize() {
-#ifdef MC_GL_VENDOR_AMD
-   return min(gl_SubgroupSize, uint(HPLOC_WG_SIZE));
-#else
-   return WAVE_SIZE;
-#endif
-}
-
-uint hplocSharedBase() {
-#ifdef MC_GL_VENDOR_AMD
-   return gl_SubgroupID * gl_SubgroupSize;
-#else
-   return 0u;
-#endif
-}
-
-uint hplocFirstBallotBit(uvec4 mask) {
-#ifdef MC_GL_VENDOR_AMD
-   if (mask.x != 0u) return uint(findLSB(mask.x));
-   if (mask.y != 0u) return 32u + uint(findLSB(mask.y));
-   return 0u;
-#else
-   return uint(findLSB(mask.x));
-#endif
-}
-
-uint findNearestNeighbor(uint numPrims, vec3 boundsMin, vec3 boundsMax) {
-   uint localID = gl_SubgroupInvocationID;
-   uint sharedBase = hplocSharedBase();
-   cached_neighbor[sharedBase + localID] = INVALID_ID;
-
-   barrier();
-
-   const uint encode_mask = ~(((1u << (SEARCH_RADIUS_SHIFT + 1u)) - 1u));
-
-   for (uint r = 1u; r <= SEARCH_RADIUS; r++) {
-      vec3 nbMin = subgroupShuffleDown(boundsMin, r);
-      vec3 nbMax = subgroupShuffleDown(boundsMax, r);
-
-      if ((localID + r) < numPrims) {
-         float newArea = computeMergedSurfaceArea(boundsMin, boundsMax, nbMin, nbMax);
-         uint newAreaI = (floatBitsToUint(newArea) << 1u) & encode_mask;
-         uint encode0 = encodeRelativeOffset(localID, localID + r);
-         uint newAreaIndex0 = newAreaI | encode0 | (localID & 1u);
-         uint newAreaIndex1 = newAreaI | encode0 | (((localID + r) & 1u) ^ 1u);
-         atomicMin(cached_neighbor[sharedBase + localID], newAreaIndex0);
-         atomicMin(cached_neighbor[sharedBase + localID + r], newAreaIndex1);
-      }
-   }
-
-   return cached_neighbor[sharedBase + localID];
-}
-
-uint mergeClustersCreateBVH2Node(
-   uint numPrims, uint NN,
-   inout uint CI, inout vec3 boundsMin, inout vec3 boundsMax
-) {
-   uint localID = gl_SubgroupInvocationID;
-   uint subgroupSize = hplocSubgroupSize();
-   uint sharedBase = hplocSharedBase();
-   bool laneHasCluster = localID < numPrims;
-
-   const uint decode_mask = ((1u << (SEARCH_RADIUS_SHIFT + 1u)) - 1u);
-
-   uint safeNN = laneHasCluster ? NN : 0u;
-   uint n_i_raw = laneHasCluster
-      ? uint(decodeRelativeOffset(int(localID), safeNN & decode_mask, localID)) : localID;
-   uint n_i = clamp(n_i_raw, 0u, subgroupSize - 1u);
-
-   uint neighborNN = subgroupShuffle(safeNN, n_i);
-   uint n_i_n_i_raw = laneHasCluster
-      ? uint(decodeRelativeOffset(int(n_i), neighborNN & decode_mask, n_i)) : localID;
-   uint n_i_n_i = clamp(n_i_n_i_raw, 0u, subgroupSize - 1u);
-
-   bool symmetricMatch = laneHasCluster && (localID == n_i_n_i);
-   bool laneIsLeft = localID < n_i;
-   bool laneIsCreatingNode = laneHasCluster && symmetricMatch && laneIsLeft;
-
-   uint leftCI = CI;
-   uint rightCI = subgroupShuffle(CI, n_i);
-   vec3 leftMin = boundsMin;
-   vec3 leftMax = boundsMax;
-   vec3 rightMin = subgroupShuffle(boundsMin, n_i);
-   vec3 rightMax = subgroupShuffle(boundsMax, n_i);
-
-   uvec4 createMask = subgroupBallot(laneIsCreatingNode);
-   uint numNewNodes = subgroupBallotBitCount(createMask);
-
-   uint baseNodeOffset = 0u;
-   if (subgroupElect()) {
-      baseNodeOffset = atomicAdd(control.numBVH2Nodes, numNewNodes);
-   }
-   baseNodeOffset = subgroupBroadcastFirst(baseNodeOffset);
-
-   uint bvh2IndexPrefix = subgroupBallotExclusiveBitCount(createMask);
-   uint bvh2Index = baseNodeOffset + bvh2IndexPrefix;
-
-   uint newCI = CI;
-   if (laneHasCluster) {
-      if (symmetricMatch) {
-         if (laneIsLeft) {
-            vec3 newMin = min(leftMin, rightMin);
-            vec3 newMax = max(leftMax, rightMax);
-
-            bvh2Nodes[bvh2Index] = BVH2Node(leftMin, leftCI, leftMax, rightCI, rightMin, 0.0, rightMax, 0.0);
-            boundsMin = newMin;
-            boundsMax = newMax;
-            newCI = makeInternalID(bvh2Index);
-         } else {
-            newCI = INVALID_ID;
-         }
-      }
-   }
-
-   bool keepLane = laneHasCluster && (newCI != INVALID_ID);
-   uvec4 keepMask = subgroupBallot(keepLane);
-   uint totalRemaining = subgroupBallotBitCount(keepMask);
-   uint myNewPos = subgroupBallotExclusiveBitCount(keepMask);
-
-   compactCI[sharedBase + localID] = INVALID_ID;
-   compactMin[sharedBase + localID] = vec3(1e38);
-   compactMax[sharedBase + localID] = vec3(-1e38);
-   barrier();
-
-   if (keepLane) {
-      compactCI[sharedBase + myNewPos] = newCI;
-      compactMin[sharedBase + myNewPos] = boundsMin;
-      compactMax[sharedBase + myNewPos] = boundsMax;
-   }
-   barrier();
-
-   CI = compactCI[sharedBase + localID];
-   boundsMin = compactMin[sharedBase + localID];
-   boundsMax = compactMax[sharedBase + localID];
-   barrier();
-
-   return totalRemaining;
-}
-
-uint loadIndicesFromBuffer(uint start, uint end, inout uint CI, uint offset) {
-   uint localID = gl_SubgroupInvocationID;
-   uint numIndices = min(end - start, hplocSubgroupSize() / 2u);
-   int indexID = int(localID) - int(offset);
-   bool laneActive = (localID >= offset) && (uint(indexID) < numIndices);
-   if (laneActive) {
-      CI = clusterIndices[start + uint(indexID)];
-   }
-   uvec4 validMask = subgroupBallot(laneActive && CI != INVALID_ID);
-   uint numValid = subgroupBallotBitCount(validMask);
-   return min(numIndices, numValid);
-}
-
-void storeIndicesToBuffer(uint origNumPrims, uint CI, uint LStart) {
-   uint localID = gl_SubgroupInvocationID;
-   if (localID < origNumPrims) {
-      clusterIndices[LStart + localID] = CI;
-   }
-}
-
-void plocMerge(uint selectedLaneID, uint L, uint R, uint S, bool isFinal) {
-   uint localID = gl_SubgroupInvocationID;
-
-   uint LStart = subgroupShuffle(L, selectedLaneID);
-   uint REnd = subgroupShuffle(R, selectedLaneID) + 1u;
-   uint LEnd = subgroupShuffle(S, selectedLaneID);
-   uint RStart = LEnd;
-
-   uint CI = INVALID_ID;
-   uint numLeft = loadIndicesFromBuffer(LStart, LEnd, CI, 0u);
-   uint numRight = loadIndicesFromBuffer(RStart, REnd, CI, numLeft);
-   uint numPrims = numLeft + numRight;
-
-   vec3 boundsMin = vec3(1e38);
-   vec3 boundsMax = vec3(-1e38);
-   if (localID < numPrims && CI != INVALID_ID) {
-      loadClusterAABB(CI, boundsMin, boundsMax);
-   }
-
-   bool finalBroadcast = subgroupShuffle(isFinal, selectedLaneID);
-   uint threshold = finalBroadcast ? 1u : hplocSubgroupSize() / 2u;
-
-   while (numPrims > threshold) {
-      uint NN = findNearestNeighbor(numPrims, boundsMin, boundsMax);
-      numPrims = mergeClustersCreateBVH2Node(numPrims, NN, CI, boundsMin, boundsMax);
-   }
-
-   storeIndicesToBuffer(numLeft + numRight, CI, LStart);
-
-   // If this was the final merge, store the root cluster ID
-   if (finalBroadcast && numPrims == 1u) {
-      uvec4 rootMask = subgroupBallot(CI != INVALID_ID);
-      if (subgroupElect()) {
-         uint rootLane = hplocFirstBallotBit(rootMask);
-         control.rootClusterID = subgroupShuffle(CI, rootLane);
-      }
-   }
-}
+layout(local_size_x = 256) in;
 
 void main() {
-   uint i = gl_GlobalInvocationID.x;
-   uint N = control.sortTotal;
+   if (control.sceneFrozen == 1u) return;
 
-   if (N == 0u) return;
+   uint numQuads = min(quadCount, uint(MAX_QUAD_COUNT));
 
-   uint L = i;
-   uint R = i;
-   bool laneActive = i < N;
-
-   while (subgroupAny(laneActive)) {
-      uint split = INVALID_ID;
-
-      if (laneActive) {
-         uint previousID = INVALID_ID;
-         uint parentTarget = findParentID(int(L), int(R), N);
-
-         if (parentTarget == R) {
-            previousID = atomicExchange(parentIDs[R], L);
-            if (previousID != INVALID_ID) {
-               split = R + 1u;
-               R = previousID;
-            }
-         } else {
-            previousID = atomicExchange(parentIDs[L - 1u], R);
-            if (previousID != INVALID_ID) {
-               split = L;
-               L = previousID;
-            }
-         }
-
-         if (previousID == INVALID_ID) {
-            laneActive = false;
-         }
-      }
-
-      uint size = R - L + 1u;
-      bool isFinal = laneActive && (size == N);
-      uvec4 mergeMask = subgroupBallot(laneActive && ((size > hplocSubgroupSize() / 2u) || isFinal));
-
-#ifdef MC_GL_VENDOR_AMD
-      uint waveMask = mergeMask.x;
-
-      while (waveMask != 0u) {
-         uint laneID = uint(findLSB(waveMask));
-         plocMerge(laneID, L, R, split, isFinal);
-         waveMask &= (waveMask - 1u);
-      }
-
-      waveMask = mergeMask.y;
-
-      while (waveMask != 0u) {
-         uint laneID = 32u + uint(findLSB(waveMask));
-         plocMerge(laneID, L, R, split, isFinal);
-         waveMask &= (waveMask - 1u);
-      }
-#else
-      uint waveMask = mergeMask.x;
-
-      while (waveMask != 0u) {
-         uint laneID = findLSB(waveMask);
-         plocMerge(laneID, L, R, split, isFinal);
-         waveMask &= (waveMask - 1u);
-      }
-#endif
+   vec3 lo = vec3(3.402823466e+38);
+   vec3 hi = vec3(-3.402823466e+38);
+   for (uint id = gl_GlobalInvocationID.x; id < numQuads; id += 65536u) {
+      vec3 p0, p1, p2, p3;
+      unpackQuadGeometryPositions(quadGeometry[id], p0, p1, p2, p3);
+      vec3 qMin = min(min(p0, p1), min(p2, p3));
+      vec3 qMax = max(max(p0, p1), max(p2, p3));
+      aabbs[id] = makeAABB(qMin, qMax);
+      lo = min(lo, qMin);
+      hi = max(hi, qMax);
    }
+   uvec3 encodedMin = encodeBound(subgroupMin(lo));
+   uvec3 encodedMax = encodeBound(subgroupMax(hi));
+   if (subgroupElect()) {
+      atomicMin(control.boundsMinX, encodedMin.x);
+      atomicMin(control.boundsMinY, encodedMin.y);
+      atomicMin(control.boundsMinZ, encodedMin.z);
+      atomicMax(control.boundsMaxX, encodedMax.x);
+      atomicMax(control.boundsMaxY, encodedMax.y);
+      atomicMax(control.boundsMaxZ, encodedMax.z);
+   }
+   if (gl_GlobalInvocationID.x != 0u) return;
+
+   control.prepareDispatchX = numQuads == 0u ? 0u : sortPrepareWorkgroupsForQuadEnd(numQuads);
+   control.prepareDispatchY = 1u;
+   control.prepareDispatchZ = 1u;
+
+   uint sortWorkgroups = (numQuads + SORT_PART_SIZE - 1u) / SORT_PART_SIZE;
+   control.sortDispatchX = sortWorkgroups;
+   control.sortDispatchY = 1u;
+   control.sortDispatchZ = 1u;
+
+   control.sortTotal = numQuads;
+
+   uint hplocWGs = (numQuads + uint(HPLOC_WG_SIZE) - 1u) / uint(HPLOC_WG_SIZE);
+   control.hplocDispatchX = hplocWGs;
+   control.hplocDispatchY = 1u;
+   control.hplocDispatchZ = 1u;
+
+   control.numBVH2Nodes = 0u;
+   control.wideDispatchX = (numQuads + 127u) / 128u;
+   control.wideDispatchY = 1u;
+   control.wideDispatchZ = 1u;
+   control.wideWorkgroups = 0u;
+   control.wideTaskCount = numQuads > 1u ? 1u : 0u;
+   control.wideNodeCount = numQuads > 1u ? 1u : 0u;
 }

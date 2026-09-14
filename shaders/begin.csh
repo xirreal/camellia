@@ -6,7 +6,6 @@ uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelViewInverse;
 uniform vec3 shadowLightPosition;
 uniform vec3 sunPosition;
-uniform bool firstPersonCamera;
 uniform vec3 cameraPosition;
 
 uniform int frameCounter;
@@ -14,46 +13,43 @@ uniform int frameCounter;
 #define QUAD_WRITE
 #include "/lib/core/storage.glsl"
 #include "/lib/buffers/control.glsl"
-#define QUAD_DATA_BUFFER_QUALIFIERS restrict writeonly
-#include "/lib/buffers/quad-data.glsl"
+#include "/lib/buffers/quad-count.glsl"
 #define TEXTURE_INFOS_BUFFER_QUALIFIERS restrict writeonly
 #include "/lib/buffers/texture-infos.glsl"
 #include "/lib/core/settings.glsl"
 
-const ivec3 workGroups = ivec3(256, 1, 1);
+const ivec3 workGroups = ivec3(1, 1, 1);
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 void main() {
    uint id = gl_GlobalInvocationID.x;
 
-   if (control.lastTextureReloadCount != textureReloadCount) {
-      if (id == 0) {
-         control.textureReloadDelay = 2u;
-         control.lastTextureReloadCount = textureReloadCount;
-      }
+   // One workgroup: finish every cache clear before publishing reset state.
+   bool resetTextures = control.lastTextureReloadCount != textureReloadCount || control.textureReloadDelay > 0u;
+   if (resetTextures) {
+      for (uint slot = id; slot < MAX_TEXTURES; slot += 256u) textureMap[slot].key = 0u;
    }
-
-   if (control.textureReloadDelay > 0u) {
-      if (id == 0) {
-         control.textureEntries = 0u;
-         textureDataOffset = 0u;
-         control.textureReloadDelay--;
-      }
-      if (id < MAX_TEXTURES) {
-         textureMap[id].key = 0u;
-      }
+   barrier();
+   if (id != 0u) return;
+   if (control.lastTextureReloadCount != textureReloadCount) {
+      control.textureReloadDelay = 2u;
+      control.lastTextureReloadCount = textureReloadCount;
+   }
+   if (resetTextures) {
+      control.textureEntries = 0u;
+      textureDataOffset = 0u;
+      control.textureReloadDelay--;
    }
 
    #if MODE == 1
-   if (hideGUI && frameCounter > 15) {
+   if (hideGUI && frameCounter > 15 && !resetTextures) {
       if (id == 0) {
          if (control.sceneFrozen == 0u) {
             control.frozenProjInv = gbufferProjectionInverse;
             control.frozenModelViewInv = gbufferModelViewInverse;
             control.frozenLightPos = vec4(shadowLightPosition, 0.0);
             control.frozenSunPos = vec4(sunPosition, 0.0);
-            control.frozenFirstPerson = firstPersonCamera ? 1u : 0u;
             control.frozenCameraPos = vec4(cameraPosition, 0.0);
          }
          control.sceneFrozen = 1u;
@@ -69,6 +65,7 @@ void main() {
          control.hplocDispatchX = 0u;
          control.hplocDispatchY = 1u;
          control.hplocDispatchZ = 1u;
+         control.wideDispatchX = 0u;
       }
       return;
    }
@@ -104,7 +101,6 @@ void main() {
       control.hplocDispatchY = 1u;
       control.hplocDispatchZ = 1u;
 
-      control.buildError = 0u;
       control.rootClusterID = INVALID_ID;
 
       control.quadErrNanInf = 0u;
@@ -112,8 +108,5 @@ void main() {
       control.quadErrCoplanar = 0u;
       control.quadErrDegenerate = 0u;
       control.quadErrCollapsed = 0u;
-
-      control.realCount1 = 0u;
-      control.realCount2 = 0u;
    }
 }

@@ -1,2 +1,16 @@
 #version 460
-#include "programs/reference_pt.csh"
+
+const ivec3 workGroups = ivec3(256, 1, 1);
+
+#define SORT_PASS 0
+#define SORT_PHASE 1
+
+#include "/lib/core/storage.glsl"
+#include "/lib/bvh/hploc.glsl"
+#include "/lib/bvh/sort.glsl"
+
+layout(local_size_x = 128) in;
+
+void main() {
+   sortScan();
+}

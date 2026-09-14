@@ -1,3 +1,5 @@
+#include "/lib/core/settings.glsl"
+
 uniform sampler2D gtexture;
 uniform float alphaTestRef;
 
@@ -19,6 +21,7 @@ in float vVertexEmission;
 #endif
 in vec4 vColor;
 in vec2 vTexCoord;
+flat in uint vBlockID;
 
 layout(location = 0) out vec4 positionOut;
 layout(location = 1) out vec4 normalOut;
@@ -60,7 +63,7 @@ float fallbackVertexEmission(vec3 linearAlbedo) {
 }
 
 void main() {
-   vec4 baseColor = texture(gtexture, vTexCoord) * vColor;
+   vec4 baseColor = texture(gtexture, vTexCoord) * vec4(vColor.rgb, 1.0);
 
    #ifdef GBUFFERS_ALPHA_TEST
    if (baseColor.a < alphaTestRef) discard;
@@ -88,6 +91,6 @@ void main() {
    #endif
 
    positionOut = vec4(vPlayerPos, emission);
-   normalOut = vec4(normal, 1.0);
+   normalOut = vec4(normal, vBlockID == 1u ? 2.0 : 1.0);
    albedoOut = vec4(linearAlbedo, baseColor.a);
 }

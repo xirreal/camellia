@@ -11,8 +11,13 @@ bool loadClusterAABB(uint clusterID, out vec3 bMin, out vec3 bMax) {
 
    if (isInternalNode(clusterID)) {
       BVH2Node node = bvh2Nodes[primID];
-      bMin = min(node.c0Min, node.c1Min);
-      bMax = max(node.c0Max, node.c1Max);
+#if BVH_WIDTH == 2
+      bMin = min(node.leftMin, node.rightMin);
+      bMax = max(node.leftMax, node.rightMax);
+#else
+      bMin = node.boundsMin;
+      bMax = node.boundsMax;
+#endif
       return true;
    } else {
       AABB leaf = aabbs[primID];
@@ -22,17 +27,18 @@ bool loadClusterAABB(uint clusterID, out vec3 bMin, out vec3 bMax) {
    }
 }
 
-uint delta32(int a, int b, uint N) {
-   if (a < 0 || b >= int(N)) return 0xFFFFFFFFu;
+uvec2 delta32(int a, int b, uint N) {
+   if (a < 0 || b >= int(N)) return uvec2(0xFFFFFFFFu);
    uint ca = mortonCodes[a];
    uint cb = mortonCodes[b];
    uint x = ca ^ cb;
-   if (x == 0u) return uint(a) ^ uint(a + 1);
-   return x;
+   return uvec2(x, uint(a) ^ uint(b));
 }
 
 uint findParentID(int L, int R, uint N) {
-   if (L == 0 || (R != int(N) && delta32(R, R + 1, N) < delta32(L - 1, L, N)))
+   uvec2 right = delta32(R, R + 1, N);
+   uvec2 left = delta32(L - 1, L, N);
+   if (L == 0 || (right.x < left.x || (right.x == left.x && right.y < left.y)))
       return uint(R);
    else
       return uint(L - 1);

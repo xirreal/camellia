@@ -1,0 +1,84 @@
+Copyright (c) 2026 xirreal. All rights reserved, except as expressly granted below.
+Project: https://github.com/xirreal/camellia
+
+1. Scope and third-party rights
+
+This license covers only the original code, assets, documentation, and other
+copyrightable contributions to Camellia owned by xirreal (the "Camellia Work").
+It does not claim ownership of third-party material, published algorithms,
+ideas, or independently created implementations.
+
+Third-party material remains subject to its own copyright and license terms.
+See THIRD_PARTY_NOTICES.md and licenses/. Those terms take precedence for the
+material they cover. Nothing here restricts rights granted directly by a
+third-party license, rights that cannot be excluded under applicable law, or
+rights already granted for an earlier version under another license. Inclusion
+in this repository does not establish ownership or clear unresolved rights.
+
+2. Limited permission to use
+
+You may download and make the copies needed to install, run, and back up
+Camellia on your devices, inspect its source, and change its settings. You may
+modify your own local copy solely for your own use of Camellia; this does not
+permit developing another shader pack from the Camellia Work or sharing those
+modifications. All copies must retain the existing attribution and notices.
+
+You may create and publish screenshots, videos, and streams rendered using
+Camellia, including monetized ones. This permission concerns rendered output,
+not distribution of the shader code or assets. It grants no rights in other
+content depicted in those outputs.
+
+3. Redistribution and derivative packs require written permission
+
+Except for section 2 and the rights preserved by section 1, you may not copy,
+redistribute, reupload, mirror, publish, sell, sublicense, or otherwise provide
+the Camellia Work, in whole or in part, to another person without prior explicit
+written permission from xirreal. This includes unmodified copies, modified
+copies, ports, extracted code or assets, and bundles or modpacks containing
+Camellia. Linking to an authorized download is permitted.
+
+You may not use the Camellia Work as the basis of another shader pack or other
+derivative project, or incorporate it into another project, without prior
+explicit written permission from xirreal. Attribution alone is not permission.
+Public source availability, silence, and permission given to someone else do
+not grant you permission. Platform-required rights to view or fork a public
+repository within that platform remain unaffected; they do not by themselves
+authorize off-platform redistribution or a derivative release.
+
+4. Conditions of explicit permission
+
+Any permission applies only to the recipient, material, activities, and scope
+identified in the written grant. It does not authorize further sublicensing or
+redistribution by recipients unless the grant expressly allows that activity.
+Every permitted copy or derivative must:
+
+- Retain this license, the applicable third-party license texts, and all
+  applicable copyright, authorship, and attribution notices.
+- Credit "Camellia by xirreal" and link to https://github.com/xirreal/camellia
+  in the accompanying documentation and, when published, on its download page.
+- Clearly identify modifications and their author, and identify the result as
+  an unofficial derivative rather than an official Camellia release.
+- Comply with all applicable third-party license terms. Permission from xirreal
+  cannot replace permission required from a third-party rights holder.
+
+Attribution is a condition of every permission granted under this license,
+including permission to redistribute or create a derivative pack. A grant of
+permission does not waive attribution. No endorsement or trademark rights are
+granted.
+
+5. Termination
+
+Permissions under this license terminate automatically if you violate its
+conditions. You must then stop the activities for which this license was
+required. This does not terminate rights held independently under section 1.
+
+6. Disclaimer
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE CAMELLIA WORK IS PROVIDED
+"AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES
+OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+IN NO EVENT SHALL XIRREAL BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY
+ARISING FROM OR IN CONNECTION WITH THE CAMELLIA WORK OR ITS USE, WHETHER IN
+CONTRACT, TORT, OR OTHERWISE.
+
+This is a proprietary, source-available license, not an open-source license.

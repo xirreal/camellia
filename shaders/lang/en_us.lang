@@ -33,15 +33,18 @@ value.DOF_BLADES.0=Circle
 # Scene Capacity
 option.MAX_QUAD_COUNT=VRAM Usage
 option.MAX_QUAD_COUNT.comment=Approximate VRAM allocated for scene geometry, BVH, and sort buffers. Higher values support more quads at a higher memory cost.
-value.MAX_QUAD_COUNT.1048576=189 MiB
-value.MAX_QUAD_COUNT.2097152=378 MiB
-value.MAX_QUAD_COUNT.4194304=756 MiB
-value.MAX_QUAD_COUNT.8388608=1.48 GiB
-value.MAX_QUAD_COUNT.16777216=2.95 GiB
-value.MAX_QUAD_COUNT.33554432=5.91 GiB
+value.MAX_QUAD_COUNT.1048576=157 MiB
+value.MAX_QUAD_COUNT.2097152=314 MiB
+value.MAX_QUAD_COUNT.4194304=628 MiB
+value.MAX_QUAD_COUNT.8388608=1.23 GiB
+value.MAX_QUAD_COUNT.16777216=2.45 GiB
+value.MAX_QUAD_COUNT.33554432=4.91 GiB
 
 option.GLASS_CAUSTICS=Refractive Caustics
 option.GLASS_CAUSTICS.comment=Enables guided sunlight estimators for refractive caustics and low-roughness specular highlights at extra ray tracing cost.
+
+option.GLASS_CAUSTIC_DISPERSION=Caustic Dispersion
+option.GLASS_CAUSTIC_DISPERSION.comment=Separates refractive glass and water caustics by wavelength. Produces colored caustics with additional color noise.
 
 option.GLASS_CAUSTIC_SAMPLES=Refractive Caustic Samples
 option.GLASS_CAUSTIC_SAMPLES.comment=Extra guided sunlight samples per shaded hit. More samples reduce refractive caustic and specular highlight noise but increase render time.
@@ -57,7 +60,61 @@ option.GLASS_CAUSTIC_CLAMP=Refractive Caustic Clamp
 option.GLASS_CAUSTIC_CLAMP.comment=Limits unusually bright caustic samples. Lower values reduce fireflies but can dim sharp caustics. 0 disables the limit.
 
 option.MODE=Mode
-value.MODE.0=ReSTIR
 value.MODE.1=Reference PT
 value.MODE.2=BVH debug
 value.MODE.3=Skip
+value.MODE.4=Simple RT
+
+option.BVH_WIDTH=BVH Width
+option.BVH_WIDTH.comment=BVH2 skips wide conversion. BVH4 trades additional build time and memory for four-child traversal.
+value.BVH_WIDTH.2=BVH2
+value.BVH_WIDTH.4=BVH4
+
+option.BVH_STACK_MODE=BVH Stack
+option.BVH_STACK_MODE.comment=Controls where ray traversal stores its stack.
+value.BVH_STACK_MODE.0=Shared memory
+value.BVH_STACK_MODE.1=Image
+value.BVH_STACK_MODE.2=Local memory
+
+option.HPLOC_SEARCH_RADIUS_SHIFT=BVH Build Search
+option.HPLOC_SEARCH_RADIUS_SHIFT.comment=Neighbor search radius. Auto uses one neighbor for Simple RT and two for path tracing. Larger searches can improve traversal at a higher build cost.
+value.HPLOC_SEARCH_RADIUS_SHIFT.-1=Auto
+value.HPLOC_SEARCH_RADIUS_SHIFT.0=1
+value.HPLOC_SEARCH_RADIUS_SHIFT.1=2
+value.HPLOC_SEARCH_RADIUS_SHIFT.2=4
+value.HPLOC_SEARCH_RADIUS_SHIFT.3=8
+
+screen.CAPTURE=Geometry Capture
+screen.PT_OPTIONS=Path Tracing
+screen.DEBUG=Debug
+
+option.ENABLE_GBUFFER_CAPTURE=G-buffer Capture
+option.ENABLE_GBUFFER_CAPTURE.comment=Adds geometry from G-buffer passes to the ray-traced scene.
+
+option.SHADOW_CAPTURE_DISTANCE=Capture Distance
+option.SHADOW_CAPTURE_DISTANCE.comment=Maximum camera-relative capture distance in blocks. Higher values capture more geometry and increase BVH build cost.
+value.SHADOW_CAPTURE_DISTANCE.128=128 blocks
+value.SHADOW_CAPTURE_DISTANCE.256=256 blocks
+value.SHADOW_CAPTURE_DISTANCE.512=512 blocks
+value.SHADOW_CAPTURE_DISTANCE.1024=1024 blocks
+
+option.ALPHA_TEST=Alpha Testing
+option.ALPHA_TEST.comment=Uses captured texture alpha to skip transparent texels during ray tracing.
+
+option.ENTITY_TEXTURES=Entity Textures
+option.ENTITY_TEXTURES.comment=Captures and samples entity albedo textures for path tracing; uses GPU memory.
+
+option.ENTITY_PBR=Entity PBR
+option.ENTITY_PBR.comment=Uses captured entity normal and specular maps. Requires Entity Textures.
+
+option.ENABLE_QUAD_VALIDATION=Quad Validation
+option.ENABLE_QUAD_VALIDATION.comment=Displays captured-quad validation errors in the debug overlay.
+
+option.ENABLE_SORT_VALIDATION=Sort Validation
+option.ENABLE_SORT_VALIDATION.comment=Checks BVH sorting and leaf pairing, then displays any errors in the debug overlay.
+
+option.ENTITY_TEXTURES_DEBUG=Entity Texture Debug
+option.ENTITY_TEXTURES_DEBUG.comment=Displays entity texture table and atlas usage in the debug overlay.
+
+option.ENABLE_DEBUG_OVERLAY=Debug Overlay
+option.ENABLE_DEBUG_OVERLAY.comment=Displays scene capacity and bounds, plus any enabled validation details.

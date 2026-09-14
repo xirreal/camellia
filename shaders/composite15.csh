@@ -7,7 +7,7 @@
 #include "/lib/buffers/morton.glsl"
 #define CLUSTER_INDEX_BUFFER_QUALIFIERS restrict readonly
 #include "/lib/buffers/cluster-index.glsl"
-#include "/lib/buffers/quad-pos-read.glsl"
+#include "/lib/buffers/quad-geometry.glsl"
 #include "/lib/bvh/hploc.glsl"
 
 layout(local_size_x = 256) in;
@@ -29,10 +29,9 @@ void main() {
    uint quadID = getClusterPrimID(ci);
 
    if (quadID < N) {
-      QuadPositions qp = quadPositions[quadID];
       vec3 p0, p1, p2, p3;
-      unpackQuadPositions(qp, p0, p1, p2, p3);
-      vec3 quadCenter = (p0 + p1 + p2 + p3) * 0.25;
+      unpackQuadGeometryPositions(quadGeometry[quadID], p0, p1, p2, p3);
+      vec3 quadCenter = (min(min(p0, p1), min(p2, p3)) + max(max(p0, p1), max(p2, p3))) * 0.5;
 
       vec3 sceneMin = getSceneMin();
       vec3 sceneMax = getSceneMax();

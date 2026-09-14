@@ -1,113 +1,82 @@
 #ifndef TEXTURES_WRITE_INCLUDE_GUARD
 #define TEXTURES_WRITE_INCLUDE_GUARD
 
-#ifndef TEXTURE_INFOS_BUFFER_QUALIFIERS
-#define TEXTURE_INFOS_BUFFER_QUALIFIERS restrict
-#endif
-#ifndef TEXTURE_DATA_BUFFER_QUALIFIERS
-#define TEXTURE_DATA_BUFFER_QUALIFIERS restrict writeonly
-#endif
-
+#define TEXTURE_INFOS_BUFFER_QUALIFIERS restrict coherent
 #include "/lib/scene/textures-common.glsl"
 #include "/lib/buffers/texture-infos.glsl"
-#include "/lib/buffers/texture-data.glsl"
 
-uint textureMapInsert(uint textureId, ivec2 texSize, out bool isNew) {
+#ifdef ENTITY_TEXTURES
+layout(rgba8) uniform writeonly image2D entityAtlasImg;
+
+uint reserveEntityTexels(uint count) {
+   uint offset = atomicAdd(textureDataOffset, 0u);
+   while (count <= MAX_TEXTURE_DATA - offset) {
+      uint previous = atomicCompSwap(textureDataOffset, offset, offset + count);
+      if (previous == offset) return offset;
+      offset = previous;
+   }
+   return INVALID_ID;
+}
+
+uint textureMapInsert(uint textureId, ivec2 texSize, out uint baseOffset) {
+   baseOffset = INVALID_ID;
+   uint key = textureId + 1u;
+   if (key == 0u || any(lessThanEqual(texSize, ivec2(0))) ||
+       any(greaterThan(texSize, ivec2(16384)))) return ENTITY_TEXTURE_FALLBACK;
    uint slot = textureId % MAX_TEXTURES;
-   isNew = false;
-
-   // Use a sentinel to lock the slot while we write metadata.
-   // 0 = empty, INVALID_ID = being initialized, anything else = valid key.
-   uint existing = atomicCompSwap(textureMap[slot].key, 0u, INVALID_ID);
-
-   if (existing == 0u) {
-      uint paddedDim = nextPow2(uint(max(texSize.x, texSize.y)));
-      uint texelCount = paddedDim * paddedDim;
-      // Allocate 3x when PBR is enabled: color + normal + specular
-      #ifdef ENTITY_PBR
-      uint totalAlloc = texelCount * 3u;
-      #else
-      uint totalAlloc = texelCount;
-      #endif
-      uint baseOffset = atomicAdd(textureDataOffset, totalAlloc);
-
-      if (baseOffset + totalAlloc > MAX_TEXTURE_DATA) {
-         atomicAdd(textureDataOffset, -totalAlloc);
-         textureMap[slot].key = 0u; // release the slot
-         return INVALID_ID;
-      }
-
-      // Write metadata before publishing the key
-      textureMap[slot].sizeX = uint(texSize.x);
-      textureMap[slot].sizeY = uint(texSize.y);
-      textureMap[slot].baseOffset = baseOffset;
-
-      // Ensure metadata writes are visible before we publish the key
-      memoryBarrierBuffer();
-
-      textureMap[slot].key = textureId + 1u;
-      isNew = true;
-
-      #ifdef ENTITY_TEXTURES_DEBUG
-      atomicAdd(control.textureEntries, 1u);
-      #endif
-   } else if (existing == INVALID_ID) {
-      // Another invocation is currently initializing this slot; treat as invalid for now.
-      return INVALID_ID;
-   }
-
-   return slot;
-}
-
-void copyTexture(uint baseOffset, sampler2D albedoSampler, ivec2 albedoSize) {
-   uvec4 activeMask = subgroupBallot(true);
-   uint activeCount = subgroupBallotBitCount(activeMask);
-   uint threadIdx = subgroupBallotExclusiveBitCount(activeMask);
-
-   uint texelCount = texelCountForSize(albedoSize);
-
-   for (uint i = threadIdx; i < texelCount; i += activeCount) {
-      uint x, y;
-      mortonDecode(i, x, y);
-
-      if (x < uint(albedoSize.x) && y < uint(albedoSize.y)) {
-         vec4 color = texelFetch(albedoSampler, ivec2(x, y), 0);
-         textureData[baseOffset + i] = packUnorm4x8(color);
-      }
-   }
-}
-
+   // ponytail: at most 64 probes; use a stronger hash if collision clusters exhaust the probe budget.
+   for (uint probe = 0u; probe < 64u; ++probe) {
+      uint existing = textureMap[slot].key;
+      if (existing == 0u) existing = atomicCompSwap(textureMap[slot].key, 0u, key);
+      if (existing == key) return slot + 1u;
+      if (existing == 0u) {
+         uint count = uint(texSize.x) * uint(texSize.y);
 #ifdef ENTITY_PBR
-// Copy color, normal, and specular textures into the SSBO.
-// Layout: [color texels] [normal texels] [specular texels], each block is texelCount uints.
-// Normal/specular samplers may be smaller (e.g. 1x1 default) so coords are clamped per-texture.
-void copyTextureWithPBR(uint baseOffset, sampler2D albedoSampler, sampler2D normalsSampler, sampler2D specularSampler, ivec2 albedoSize, ivec2 normalsSize, ivec2 specularSize) {
-   uvec4 activeMask = subgroupBallot(true);
-   uint activeCount = subgroupBallotBitCount(activeMask);
-   uint threadIdx = subgroupBallotExclusiveBitCount(activeMask);
-
-   uint texelCount = texelCountForSize(albedoSize);
-
-   for (uint i = threadIdx; i < texelCount; i += activeCount) {
-      uint x, y;
-      mortonDecode(i, x, y);
-
-      if (x < uint(albedoSize.x) && y < uint(albedoSize.y)) {
-         ivec2 coord = ivec2(x, y);
-
-         vec4 color = texelFetch(albedoSampler, coord, 0);
-         textureData[baseOffset + i] = packUnorm4x8(color);
-
-         ivec2 nCoord = min(coord, normalsSize - 1);
-         vec4 normal = texelFetch(normalsSampler, nCoord, 0);
-         textureData[baseOffset + texelCount + i] = packUnorm4x8(normal);
-
-         ivec2 sCoord = min(coord, specularSize - 1);
-         vec4 spec = texelFetch(specularSampler, sCoord, 0);
-         textureData[baseOffset + 2u * texelCount + i] = packUnorm4x8(spec);
+         count *= 3u;
+#endif
+         baseOffset = reserveEntityTexels(count);
+         textureMap[slot].baseOffset = baseOffset;
+         textureMap[slot].sizeX = uint(texSize.x);
+         textureMap[slot].sizeY = uint(texSize.y);
+         atomicAdd(control.textureEntries, 1u);
+         // Geometry only stores the ID. Sampling starts in a later Iris pass,
+         // after metadata and image copies from all shadow draws are complete.
+         return slot + 1u;
       }
+      slot = (slot + 1u) % MAX_TEXTURES;
    }
+   return ENTITY_TEXTURE_FALLBACK;
 }
 #endif
+
+uint captureEntityTexture(uint textureId, sampler2D albedo, sampler2D normals, sampler2D specular) {
+#ifdef ENTITY_TEXTURES
+   ivec2 size = textureSize(albedo, 0);
+   uint id = ENTITY_TEXTURE_FALLBACK;
+   uint baseOffset = INVALID_ID;
+   if (subgroupElect()) id = textureMapInsert(textureId, size, baseOffset);
+   id = subgroupBroadcastFirst(id);
+   baseOffset = subgroupBroadcastFirst(baseOffset);
+   if (baseOffset != INVALID_ID) {
+      uvec4 activeMask = subgroupBallot(true);
+      uint count = uint(size.x) * uint(size.y);
+#ifdef ENTITY_PBR
+      ivec2 normalSize = textureSize(normals, 0);
+      ivec2 specularSize = textureSize(specular, 0);
+#endif
+      for (uint i = subgroupBallotExclusiveBitCount(activeMask); i < count; i += subgroupBallotBitCount(activeMask)) {
+         ivec2 coord = ivec2(i % uint(size.x), i / uint(size.x));
+         imageStore(entityAtlasImg, entityAtlasCoord(baseOffset + i), texelFetch(albedo, coord, 0));
+#ifdef ENTITY_PBR
+         imageStore(entityAtlasImg, entityAtlasCoord(baseOffset + count + i), texelFetch(normals, min(coord, normalSize - 1), 0));
+         imageStore(entityAtlasImg, entityAtlasCoord(baseOffset + 2u * count + i), texelFetch(specular, min(coord, specularSize - 1), 0));
+#endif
+      }
+   }
+   return id;
+#else
+   return ENTITY_TEXTURE_FALLBACK;
+#endif
+}
 
 #endif

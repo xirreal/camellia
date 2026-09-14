@@ -9,18 +9,8 @@ uniform mat4 shadowModelViewInverse;
 #include "/lib/core/storage.glsl"
 #include "/lib/scene/quad-write.glsl"
 
-#ifdef MC_GL_VENDOR_NVIDIA
-out gl_PerVertex {
-   flat float16_t gl_Position;
-};
-#endif
-
 void main() {
-   #ifdef MC_GL_VENDOR_NVIDIA
-   gl_Position = float16_t(0.0 / 0.0);
-   #else
    gl_Position = vec4(0.0 / 0.0);
-   #endif
 
    if (control.sceneFrozen != 0u) return;
    uint blockId = uint(mc_Entity.x);
@@ -37,9 +27,5 @@ void main() {
    getQuadWriteSlot(quadID, slot);
    if (quadID == INVALID_ID) return;
 
-   if (slot == 0u) {
-      writeQuadMaterial(quadID, blockId, 0u, emission, false, true, false);
-   }
-   writeQuadVertex(quadID, slot, playerSpacePos, coord, color);
-   updateSceneBounds(playerSpacePos);
+   writeQuad(quadID, slot, playerSpacePos, coord, color, blockId, 0u, emission, false, true, false);
 }

@@ -6,19 +6,10 @@ uniform float viewWidth;
 uniform float viewHeight;
 uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelViewInverse;
-uniform vec3 shadowLightPosition;
-uniform int frameCounter;
-uniform sampler2D colortex5;
 uniform sampler2D blockAtlas;
-uniform sampler2D normalAtlas;
-uniform sampler2D specularAtlas;
-uniform int isEyeInWater;
-uniform vec3 cameraPosition;
 
 #include "/lib/core/storage.glsl"
 #include "/lib/bvh/hploc.glsl"
-#include "/lib/core/encoding.glsl"
-#include "/lib/core/noise.glsl"
 #include "/lib/bvh/raytrace.glsl"
 
 vec3 TurboColormap(float x) {
@@ -44,84 +35,53 @@ vec3 debugBVH(vec3 ro, vec3 rd, bool skipPlayer) {
    uint costCounter = 0;
    float hitT = (8.0 + (far * 16.0)) * DIAGONAL;
 
-   uint rootID = control.rootClusterID;
-   if (rootID == INVALID_ID) return TurboColormap(0.0);
+   uint sceneRoot = control.rootClusterID;
+   if (sceneRoot == INVALID_ID) return TurboColormap(0.0);
 
    vec3 invRd = safeInvDir(rd);
+   vec3 rayOffset = -ro * invRd;
+   bool overflow = false;
 
-   int sp = 0;
-   uint tid = gl_LocalInvocationIndex;
-   uint nodeID = rootID;
-   uint numQuads = control.sortTotal;
-
-   for (int iter = 0; iter < BVH_STACK_SIZE * BVH_STACK_SIZE; iter++) {
-      if (nodeID == INVALID_ID) {
-         if (sp == 0) break;
-         --sp;
-         nodeID = shared_stack[sp * BVH_WG_SIZE + tid];
-         continue;
-      }
-
+   {
+      BVHTraversalState traversal;
+      bvhTraversalInit(traversal, sceneRoot);
+      while (true) {
       costCounter += 1;
 
-      uint prim = getClusterPrimID(nodeID);
+      uint prim = getClusterPrimID(traversal.nodeID);
 
-      if (!isInternalNode(nodeID)) {
-         if (prim < numQuads) {
-            if (skipPlayer && quadPlayerModel(prim)) {
-               nodeID = INVALID_ID;
-               continue;
-            }
-
-            vec3 p0, p1, p2, p3;
-            decodeQuadPositions(prim, p0, p1, p2, p3);
-
-            float t;
-            vec2 bary;
-
-            costCounter += 5;
-
-            if (intersectTri(ro, rd, p0, p1, p2, t, bary) && t < hitT) {
-               hitT = t;
-            }
-
-            if (intersectTri(ro, rd, p0, p2, p3, t, bary) && t < hitT) {
-               hitT = t;
-            }
+      if (!isInternalNode(traversal.nodeID)) {
+         if (skipPlayer && quadPlayerModel(prim)) {
+            if (bvhTraversalPop(traversal)) break;
+            continue;
          }
-         nodeID = INVALID_ID;
+
+         QuadGeometry qg = quadGeometry[prim];
+         vec3 p0, p1, p2, p3;
+         unpackQuadGeometryPositions(qg, p0, p1, p2, p3);
+
+         float t;
+         vec2 bary;
+
+         costCounter += 5;
+
+         if (intersectTri(ro, rd, p0, p1, p2, t, bary) && t < hitT) {
+            hitT = t;
+         }
+
+         if (intersectTri(ro, rd, p0, p2, p3, t, bary) && t < hitT) {
+            hitT = t;
+         }
+         if (bvhTraversalPop(traversal)) break;
          continue;
       }
 
-      BVH2Node node = bvh2Nodes[prim];
-      uint c0 = node.leftChild;
-      uint c1 = node.rightChild;
-
-      float t0 = intersectAABB(node.c0Min, node.c0Max, ro, invRd, 0.0, hitT);
-      float t1 = intersectAABB(node.c1Min, node.c1Max, ro, invRd, 0.0, hitT);
-
-      bool h0 = (t0 != RT_INF);
-      bool h1 = (t1 != RT_INF);
-
-      if (h0 && h1) {
-         bool leftFirst = (t0 <= t1);
-         uint nearID = leftFirst ? c0 : c1;
-         uint farID = leftFirst ? c1 : c0;
-
-         if (sp < BVH_STACK_SIZE) {
-            shared_stack[sp * BVH_WG_SIZE + tid] = farID;
-            sp++;
-         }
-         nodeID = nearID;
-      } else if (h0) {
-         nodeID = c0;
-      } else if (h1) {
-         nodeID = c1;
-      } else {
-         nodeID = INVALID_ID;
+      if (bvhTraverseNode(traversal, invRd, rayOffset, hitT)) break;
       }
+      overflow = overflow || bvhTraversalOverflow(traversal);
    }
 
+   if (overflow) return vec3(1.0, 0.0, 1.0);
    return TurboColormap(float(costCounter) / 150.0);
 }
 

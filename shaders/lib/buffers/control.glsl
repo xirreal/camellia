@@ -26,20 +26,16 @@ layout(std430, binding = 1) CONTROL_BUFFER_QUALIFIERS buffer ControlBuffer {
    uint sortTotal;
    uint sortErrors;
    uint pairErrors;
-   uint buildError;
    uint rootClusterID;
    uint quadErrNanInf;
    uint quadErrExtent;
    uint quadErrCoplanar;
    uint quadErrDegenerate;
    uint quadErrCollapsed;
-   uint realCount1;
-   uint realCount2;
    uint textureEntries;
    int lastTextureReloadCount;
    uint textureReloadDelay;
    uint sceneFrozen;
-   uint frozenFirstPerson;
    float autofocusDist;
 
    mat4 frozenProjInv;
@@ -47,6 +43,12 @@ layout(std430, binding = 1) CONTROL_BUFFER_QUALIFIERS buffer ControlBuffer {
    vec4 frozenLightPos;
    vec4 frozenCameraPos;
    vec4 frozenSunPos;
+   uint wideDispatchX; // 304
+   uint wideDispatchY;
+   uint wideDispatchZ;
+   uint wideWorkgroups;
+   uint wideTaskCount;
+   uint wideNodeCount;
 } control;
 
 #endif
