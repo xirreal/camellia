@@ -21,6 +21,8 @@ It may also straight up not work on AMD. I don't have an AMD card to test it wit
 ![Desert screenshot](img/desert.png)
 ![Cherry tree screenshot](img/cherry.png)
 ![Zoomed in DOF screenshot](img/water.png)
+*Screenshots taken with [Patrix 256x](https://www.patreon.com/patrix)*
+
 ![BVH debug](img/debug.png)
 
 ## Requirements
@@ -31,7 +33,7 @@ It may also straight up not work on AMD. I don't have an AMD card to test it wit
 
 ## Installation
 
-1. [Download the repository ZIP](https://github.com/xirreal/camellia/archive/refs/heads/main.zip) and extract it.
+1. [Download the repository ZIP](https://github.com/xirreal/camellia/archive/refs/heads/main.zip) or from [Modrinth](https://modrinth.com/shader/camellia-shaders) and extract it.
 2. Place the extracted Camellia folder in `.minecraft/shaderpacks/`. The pack folder should contain a `shaders/` directory.
 3. Select Camellia in Iris's Shader Packs menu.
 

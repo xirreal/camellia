@@ -1,0 +1,4 @@
+*.csh linguist-language=GLSL
+*.gsh linguist-language=GLSL
+*.vsh linguist-language=GLSL
+*.fsh linguist-language=GLSL
