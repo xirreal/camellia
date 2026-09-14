@@ -565,7 +565,7 @@ void main() {
                      insideMedium = false;
                   } else {
                      insideMedium = true;
-                     mediumColor = glassColor;
+                     mediumColor = glassColor * glassColor;
                   }
 
                   rayOrigin = offsetRayOrigin(hitPoint, -N);
