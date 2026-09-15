@@ -383,7 +383,7 @@ bool shadowTriHit(QuadGeometry qg, QuadAttributes qa, vec2 bary, int triIndex, i
       vec2 hitUV = interpolateUV(qa, bary, triIndex);
       vec4 texSample = sampleQuadTexture(qa, hitUV);
       vec3 vertexTint = interpolateTint(qg);
-      vec3 texTint = mix(vec3(1.0), texSample.rgb, smoothstep(alphaTestRef, 0.8, texSample.a));
+      vec3 texTint = mix(vec3(1.0), texSample.rgb, step(alphaTestRef, texSample.a));
       float transparency = 1.0 - texSample.a;
       tint *= mix(vec3(0.0), pow(texTint * vertexTint, vec3(2.2)), transparency);
       return tint == vec3(0.0);

@@ -204,7 +204,7 @@ SunVisibility traceSunVisibility(vec3 ro, vec3 rd, float maxDist, vec3 lightDir,
       }
 
       vec4 texColor = sampleHitTexture(hit);
-      vec3 texTint = mix(vec3(1.0), texColor.rgb, smoothstep(alphaTestRef, 0.8, texColor.a));
+      vec3 texTint = mix(vec3(1.0), texColor.rgb, step(alphaTestRef, texColor.a));
       vec3 surfaceTint = pow(max(texTint * hit.vertexData.rgb, vec3(0.0)), vec3(2.2));
       float transparency = clamp(1.0 - texColor.a, 0.0, 1.0);
 
@@ -525,7 +525,7 @@ void main() {
             continue;
          } else {
             float opacity = texColor.a;
-            vec3 glassTexTint = mix(vec3(1.0), texColor.rgb * texColor.rgb, smoothstep(alphaTestRef, 0.5, opacity));
+            vec3 glassTexTint = mix(vec3(1.0), texColor.rgb * texColor.rgb, step(alphaTestRef, opacity));
             vec3 glassColor = pow(max(glassTexTint * bounceHit.vertexData.rgb, vec3(0.0)), vec3(2.2));
 
             int wl = int(rand() * float(GLASS_BIN_COUNT));
@@ -565,7 +565,7 @@ void main() {
                      insideMedium = false;
                   } else {
                      insideMedium = true;
-                     mediumColor = glassColor * glassColor;
+                     mediumColor = glassColor;
                   }
 
                   rayOrigin = offsetRayOrigin(hitPoint, -N);
