@@ -48,6 +48,7 @@ vec3 decodeLabPBRNormal(vec4 normalSample, vec3 geomNormal, vec4 tangentSample) 
 
    vec3 normal = normalize(geomNormal);
    vec3 tangent = safeTangent(normal, tangentSample.xyz);
+   // Opposite Iris's raw-map bitangent because tangentNormal has DirectX Y converted.
    vec3 bitangent = normalize(cross(normal, tangent)) * (tangentSample.w < 0.0 ? -1.0 : 1.0);
 
    return normalize(tangent * tangentNormal.x + bitangent * tangentNormal.y + normal * tangentNormal.z);

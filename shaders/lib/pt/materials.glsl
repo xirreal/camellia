@@ -23,11 +23,22 @@ void computeTangentBasis(uint quadID, int triIndex, vec3 geomNormal, out vec3 ta
    vec2 dUV1 = uv1 - uv0;
    vec2 dUV2 = uv2 - uv0;
 
+   vec3 windingCross = cross(edge1, edge2);
+   vec3 windingNormal = dot(windingCross, windingCross) > 1e-12 ? normalize(windingCross) : geomNormal;
+   float facing = dot(windingNormal, geomNormal) < 0.0 ? -1.0 : 1.0;
+
    float denom = dUV1.x * dUV2.y - dUV1.y * dUV2.x;
    float handedness = (denom < 0.0) ? -1.0 : 1.0;
-   vec3 t = (abs(denom) > 1e-8) ? (edge1 * dUV2.y - edge2 * dUV1.y) / denom : vec3(1.0, 0.0, 0.0);
-   tangent = normalize(t - geomNormal * dot(geomNormal, t));
-   bitangent = normalize(cross(geomNormal, tangent)) * handedness;
+   vec3 t = (abs(denom) > 1e-8) ? (edge1 * dUV2.y - edge2 * dUV1.y) / denom : vec3(0.0);
+   t -= windingNormal * dot(windingNormal, t);
+   if (dot(t, t) <= 1e-8) {
+      vec3 up = abs(windingNormal.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+      t = cross(up, windingNormal);
+   }
+   t = normalize(t);
+
+   tangent = t * facing;
+   bitangent = normalize(cross(t, windingNormal)) * handedness * facing;
 }
 
 // Adobe Standard Material parameter values for F0 ("Base Color") and F82 tint
