@@ -2,3 +2,4 @@
 .DS_Store
 .codex
 .agents
+dist/
