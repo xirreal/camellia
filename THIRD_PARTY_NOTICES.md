@@ -43,3 +43,12 @@ unchanged from revision `09a6081d964b682bbb58838b83ab75aebe7f4e05`.
 GPUSorting's own code is MIT-licensed. Its complete upstream notices are
 retained because it also credits other implementations; this does not assert
 that every component named in that upstream bundle is present in Camellia.
+
+## Atmosphere rendering
+
+The implementation in `shaders/lib/atmosphere/` and
+`shaders/programs/atmosphere_*.csh` is based on Sébastien Hillaire's [Unreal
+Engine Sky Atmosphere](https://github.com/sebh/UnrealEngineSkyAtmosphere),
+Copyright (c) 2020 Epic Games, Inc., under the MIT license.
+
+The applicable license notices are in [licenses/Atmosphere.txt](licenses/Atmosphere.txt).
