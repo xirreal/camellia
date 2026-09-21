@@ -112,5 +112,10 @@ void main() {
       control.quadErrCoplanar = 0u;
       control.quadErrDegenerate = 0u;
       control.quadErrCollapsed = 0u;
+      control.quadSubgroupTests = 0u;
+      control.quadSubgroupFull = 0u;
+      control.quadSubgroupConsecutive = 0u;
+      control.quadSubgroupAllocator = 0u;
+      control.quadSubgroupSlots = 0u;
    }
 }

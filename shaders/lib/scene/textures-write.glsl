@@ -6,11 +6,8 @@
 #include "/lib/buffers/texture-infos.glsl"
 
 #ifdef ENTITY_TEXTURES
-layout(rgba8) uniform writeonly image2D entityAtlasImg;
 #ifdef ENTITY_PBR
 uniform int frameCounter;
-layout(rgba8) uniform writeonly image2D entityNormalAtlasImg;
-layout(rgba8) uniform writeonly image2D entitySpecularAtlasImg;
 #endif
 
 uint reserveEntityTexels(uint count) {
@@ -25,39 +22,48 @@ uint reserveEntityTexels(uint count) {
    return INVALID_ID;
 }
 
-uint textureMapInsert(uint textureId, sampler2D albedo, out ivec2 texSize, out uint baseOffset, out bool copyAlbedo) {
+uint textureMapInsert(uint textureId, sampler2D albedo, uint maxCopyTexels, out ivec2 texSize, out uint baseOffset, out bool copyAlbedo) {
    texSize = ivec2(0);
    baseOffset = INVALID_ID;
    copyAlbedo = false;
    uint key = textureId + 1u;
    uint slot = textureId % MAX_TEXTURES;
-   // ponytail: at most 64 probes; use a stronger hash if collision clusters exhaust the probe budget.
+   // todo: investigate if this is necessary? maybe diff hash would be better
    for (uint probe = 0u; probe < 64u; ++probe) {
-      uint existing = textureMap[slot].key;
-      if (existing == 0u) existing = atomicCompSwap(textureMap[slot].key, 0u, key);
+      uint existing = atomicAdd(textureMap[slot].key, 0u);
+      if (existing == 0u) {
+         if (maxCopyTexels == 0u) return ENTITY_TEXTURE_FALLBACK;
+         existing = atomicCompSwap(textureMap[slot].key, 0u, key);
+      }
       if (existing == key) {
 #ifdef ENTITY_PBR
-         // Iris supplies default PBR maps on first use and loads the real maps
-         // next frame. Claim exactly one later copy, reusing the albedo allocation.
-         uint pendingFrame = textureMap[slot].pbrPendingFrame;
-         if (pendingFrame != INVALID_ID && pendingFrame != uint(frameCounter) &&
-             atomicCompSwap(textureMap[slot].pbrPendingFrame, pendingFrame, INVALID_ID) == pendingFrame) {
-            texSize = ivec2(textureMap[slot].sizeX, textureMap[slot].sizeY);
-            baseOffset = textureMap[slot].baseOffset;
+         // 26.2+ uploads entity pbr a frame late to work around some bugs
+         // so we need to do the copy a frame later
+         uint pendingFrame = atomicAdd(textureMap[slot].pbrPendingFrame, 0u);
+         if (pendingFrame != INVALID_ID && pendingFrame != uint(frameCounter)) {
+            uvec2 size = uvec2(textureMap[slot].sizeX, textureMap[slot].sizeY);
+            uint offset = textureMap[slot].baseOffset;
+            if (validEntityTextureRange(size, offset) && size.x * size.y <= maxCopyTexels &&
+                atomicCompSwap(textureMap[slot].pbrPendingFrame, pendingFrame, INVALID_ID) == pendingFrame) {
+               texSize = ivec2(size);
+               baseOffset = offset;
+            }
          }
 #endif
          return slot + 1u;
       }
       if (existing == 0u) {
          texSize = textureSize(albedo, 0);
-         if (all(greaterThan(texSize, ivec2(0))) && all(lessThanEqual(texSize, ivec2(16384)))) {
+         if (all(greaterThan(texSize, ivec2(0))) && all(lessThanEqual(texSize, ivec2(16384))) &&
+             uint(texSize.x) * uint(texSize.y) <= maxCopyTexels) {
             baseOffset = reserveEntityTexels(uint(texSize.x) * uint(texSize.y));
          }
          textureMap[slot].baseOffset = baseOffset;
          textureMap[slot].sizeX = uint(texSize.x);
          textureMap[slot].sizeY = uint(texSize.y);
 #ifdef ENTITY_PBR
-         if (baseOffset != INVALID_ID) textureMap[slot].pbrPendingFrame = uint(frameCounter);
+         memoryBarrierBuffer();
+         if (baseOffset != INVALID_ID) atomicExchange(textureMap[slot].pbrPendingFrame, uint(frameCounter));
 #endif
          copyAlbedo = true;
          atomicAdd(control.textureEntries, 1u);
@@ -71,9 +77,10 @@ uint textureMapInsert(uint textureId, sampler2D albedo, out ivec2 texSize, out u
 }
 #endif
 
-uint captureEntityTexture(uint textureId, sampler2D albedo, sampler2D normals, sampler2D specular) {
+uint captureEntityTexture(uint textureId, sampler2D albedo, ivec2 viewport, out uvec4 copyJob, out vec4 copyPosition) {
+   copyJob = uvec4(0u);
+   copyPosition = vec4(2.0, 2.0, 2.0, 1.0);
 #ifndef ENTITY_TEXTURES
-   // Keep the sampler active so Iris still reports IDs when copying is disabled.
    if (any(lessThanEqual(textureSize(albedo, 0), ivec2(0)))) return ENTITY_TEXTURE_FALLBACK;
 #endif
    if (textureId == 0u || textureId == INVALID_ID) return ENTITY_TEXTURE_FALLBACK;
@@ -85,36 +92,29 @@ uint captureEntityTexture(uint textureId, sampler2D albedo, sampler2D normals, s
    uint id = ENTITY_TEXTURE_FALLBACK;
    uint baseOffset = INVALID_ID;
    bool copyAlbedo = false;
-   if (subgroupElect()) id = textureMapInsert(textureId, albedo, size, baseOffset, copyAlbedo);
+   uvec4 activeMask = subgroupBallot(true);
+   uint lane = gl_SubgroupInvocationID;
+   uint firstLane = lane & ~3u;
+   uint firstVertex = subgroupShuffle(uint(gl_VertexID), firstLane);
+   // workaround sodium bug where sometimes not all lanes are active in a quad
+   // causing the copy to be incomplete
+   bool completeQuad = firstLane + 3u < gl_SubgroupSize;
+   for (uint i = 1u; i < 4u; ++i) {
+      uint quadLane = min(firstLane + i, gl_SubgroupSize - 1u);
+      completeQuad = completeQuad && subgroupBallotBitExtract(activeMask, quadLane) &&
+         subgroupShuffle(uint(gl_VertexID), quadLane) == firstVertex + i;
+   }
+   ivec2 copyViewport = entityCopyViewport(viewport);
+   uint maxCopyTexels = completeQuad ? uint(copyViewport.x * copyViewport.y) * ENTITY_COPY_MAX_STEPS : 0u;
+   if (subgroupElect()) id = textureMapInsert(textureId, albedo, maxCopyTexels, size, baseOffset, copyAlbedo);
    id = subgroupBroadcastFirst(id);
    baseOffset = subgroupBroadcastFirst(baseOffset);
    copyAlbedo = subgroupBroadcastFirst(copyAlbedo);
-   if (baseOffset != INVALID_ID) {
+   if (baseOffset != INVALID_ID && completeQuad) {
       size = subgroupBroadcastFirst(size);
-      uvec4 activeMask = subgroupBallot(true);
-      uint count = uint(size.x) * uint(size.y);
-      uint stride = subgroupBallotBitCount(activeMask);
-#ifdef ENTITY_PBR
-      ivec2 normalSize = textureSize(normals, 0);
-      ivec2 specularSize = textureSize(specular, 0);
-#endif
-      for (uint i = subgroupBallotExclusiveBitCount(activeMask); i < count; i += stride) {
-         ivec2 coord = ivec2(i % uint(size.x), i / uint(size.x));
-         ivec2 atlasCoord = entityAtlasCoord(baseOffset + i);
-         if (copyAlbedo) imageStore(entityAtlasImg, atlasCoord, texelFetch(albedo, coord, 0));
-#ifdef ENTITY_PBR
-         if (!copyAlbedo) {
-            // Resample at texel centers: PBR maps can differ from the albedo size.
-            vec2 uv = (vec2(coord) + 0.5) / vec2(size);
-            vec4 normalValue = all(greaterThan(normalSize, ivec2(0)))
-               ? texelFetch(normals, ivec2(uv * vec2(normalSize)), 0) : vec4(0.5, 0.5, 1.0, 1.0);
-            vec4 specularValue = all(greaterThan(specularSize, ivec2(0)))
-               ? texelFetch(specular, ivec2(uv * vec2(specularSize)), 0) : vec4(0.0, 0.04, 0.0, 0.0);
-            imageStore(entityNormalAtlasImg, atlasCoord, normalValue);
-            imageStore(entitySpecularAtlasImg, atlasCoord, specularValue);
-         }
-#endif
-      }
+      copyJob = uvec4(baseOffset, uvec2(size), copyAlbedo ? 1u : 2u);
+      uint corner = lane - firstLane;
+      copyPosition = vec4(corner == 1u ? 3.0 : -1.0, corner >= 2u ? 3.0 : -1.0, 0.0, 1.0);
    }
    return id;
 #else

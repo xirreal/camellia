@@ -17,7 +17,6 @@ const float shadowDistance = 1024.0;
 #endif
 
 const float shadowDistanceRenderMul = 1.0;
-const int shadowMapResolution = 32;
 const float sunPathRotation = -40.0;
 /*
 const int colortex5Format = RGBA32F;

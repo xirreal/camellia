@@ -4,6 +4,7 @@ layout(triangles) in;
 layout(points, max_vertices = 0) out;
 
 #define QUAD_WRITE
+#define QUAD_WRITE_RECORDS_ONLY
 #include "/lib/core/storage.glsl"
 #include "/lib/scene/quad-write.glsl"
 

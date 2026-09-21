@@ -16,11 +16,12 @@ vec4 sampleEntityAtlas(uint textureID, vec2 uv, uint layer, vec4 fallback) {
 #ifdef ENTITY_TEXTURES
    if (textureID == 0u || textureID > MAX_TEXTURES) return fallback;
    TextureInfo entry = textureMap[textureID - 1u];
-   if (entry.baseOffset == INVALID_ID) return fallback;
+   uvec2 size = uvec2(entry.sizeX, entry.sizeY);
+   if (entry.key == 0u || !validEntityTextureRange(size, entry.baseOffset) ||
+       any(isnan(uv)) || any(isinf(uv))) return fallback;
 #ifdef ENTITY_PBR
    if (layer != 0u && entry.pbrPendingFrame != INVALID_ID) return fallback;
 #endif
-   uvec2 size = uvec2(entry.sizeX, entry.sizeY);
    uvec2 texel = min(uvec2(clamp(uv, 0.0, 1.0) * vec2(size)), size - 1u);
    uint address = entry.baseOffset + texel.y * size.x + texel.x;
    ivec2 coord = entityAtlasCoord(address);

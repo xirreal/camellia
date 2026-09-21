@@ -20,8 +20,10 @@ in vec2 mc_Entity;
 uniform int blockEntityId;
 uniform int gtextureId;
 uniform sampler2D gtexture;
-uniform sampler2D normals;
-uniform sampler2D specular;
+uniform float viewWidth;
+uniform float viewHeight;
+flat out uvec4 vTextureCopy;
+out vec4 vTextureCopyPosition;
 #include "/lib/scene/textures-write.glsl"
 #endif
 
@@ -68,7 +70,7 @@ void main() {
 
    #ifdef GBUFFERS_LAYER_CAPTURE
    bool captureLayer = blockEntityId == 3 || blockEntityId == 4;
-   uint textureID = captureEntityTexture(uint(gtextureId), gtexture, normals, specular);
+   uint textureID = captureEntityTexture(uint(gtextureId), gtexture, ivec2(viewWidth, viewHeight), vTextureCopy, vTextureCopyPosition);
    if (control.sceneFrozen == 0u) {
       uint quadID, quadSlot;
       getConditionalQuadWriteSlot(captureLayer, quadID, quadSlot);

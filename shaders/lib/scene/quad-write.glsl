@@ -16,6 +16,7 @@
 #include "/lib/buffers/quad-geometry.glsl"
 #include "/lib/buffers/quad-attributes.glsl"
 
+#ifndef QUAD_WRITE_RECORDS_ONLY
 void getConditionalQuadWriteSlot(bool enabled, out uint quadID, out uint slot) {
    uvec4 activeMask = subgroupBallot(enabled);
    uint activeThreads = subgroupBallotBitCount(activeMask);
@@ -32,11 +33,57 @@ void getConditionalQuadWriteSlot(bool enabled, out uint quadID, out uint slot) {
    slot = lane & 3u;
 
    if (!enabled || quadID >= MAX_QUAD_COUNT) quadID = INVALID_ID;
+
+   #ifdef ENABLE_SUBGROUP_VALIDATION
+   if (enabled) {
+      uint quadBase = gl_SubgroupInvocationID & ~3u;
+      bool fullQuad =
+         subgroupBallotBitExtract(activeMask, quadBase) &&
+         subgroupBallotBitExtract(activeMask, quadBase + 1u) &&
+         subgroupBallotBitExtract(activeMask, quadBase + 2u) &&
+         subgroupBallotBitExtract(activeMask, quadBase + 3u);
+      bool consecutiveVertices = false;
+      bool allocatorMatchesQuad = false;
+      bool slotsMatch = false;
+
+      if (fullQuad) {
+         int v0 = subgroupQuadBroadcast(gl_VertexID, 0);
+         int v1 = subgroupQuadBroadcast(gl_VertexID, 1);
+         int v2 = subgroupQuadBroadcast(gl_VertexID, 2);
+         int v3 = subgroupQuadBroadcast(gl_VertexID, 3);
+         consecutiveVertices = v1 == v0 + 1 && v2 == v0 + 2 && v3 == v0 + 3;
+
+         uint q0 = subgroupQuadBroadcast(quadID, 0);
+         uint q1 = subgroupQuadBroadcast(quadID, 1);
+         uint q2 = subgroupQuadBroadcast(quadID, 2);
+         uint q3 = subgroupQuadBroadcast(quadID, 3);
+         allocatorMatchesQuad = q0 == q1 && q0 == q2 && q0 == q3;
+
+         uint s0 = subgroupQuadBroadcast(slot, 0);
+         uint s1 = subgroupQuadBroadcast(slot, 1);
+         uint s2 = subgroupQuadBroadcast(slot, 2);
+         uint s3 = subgroupQuadBroadcast(slot, 3);
+         slotsMatch = s0 == 0u && s1 == 1u && s2 == 2u && s3 == 3u;
+      }
+
+      uint testLeader = uint((gl_SubgroupInvocationID & 3u) == 0u);
+      uint tests = subgroupAdd(testLeader);
+      uvec4 passed = subgroupAdd(uvec4(fullQuad, consecutiveVertices, allocatorMatchesQuad, slotsMatch) * testLeader);
+      if (subgroupElect()) {
+         atomicAdd(control.quadSubgroupTests, tests);
+         atomicAdd(control.quadSubgroupFull, passed.x);
+         atomicAdd(control.quadSubgroupConsecutive, passed.y);
+         atomicAdd(control.quadSubgroupAllocator, passed.z);
+         atomicAdd(control.quadSubgroupSlots, passed.w);
+      }
+   }
+   #endif
 }
 
 void getQuadWriteSlot(out uint quadID, out uint slot) {
    getConditionalQuadWriteSlot(true, quadID, slot);
 }
+#endif
 
 void writeQuadRecords(
    uint quadID, vec3 p0, vec3 p1, vec3 p2, vec3 p3,

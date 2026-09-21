@@ -1,5 +1,12 @@
 #include "/lib/core/settings.glsl"
 
+#ifdef GBUFFERS_LAYER_CAPTURE
+#include "/lib/scene/textures-copy.glsl"
+uniform float viewWidth;
+uniform float viewHeight;
+flat in uvec4 gTextureCopy;
+#endif
+
 uniform sampler2D gtexture;
 uniform float alphaTestRef;
 
@@ -9,6 +16,8 @@ uniform sampler2D normalAtlas;
 uniform sampler2D specularAtlas;
 #elif defined(GBUFFERS_TEXTURE_PBR) && defined(ENTITY_PBR)
 #define GBUFFERS_HAS_LABPBR
+#endif
+#if (defined(GBUFFERS_TEXTURE_PBR) && defined(ENTITY_PBR)) || defined(GBUFFERS_LAYER_CAPTURE)
 uniform sampler2D normals;
 uniform sampler2D specular;
 #endif
@@ -64,6 +73,12 @@ float fallbackVertexEmission(vec3 linearAlbedo) {
 }
 
 void main() {
+   #ifdef GBUFFERS_LAYER_CAPTURE
+   if (gTextureCopy.w != 0u) {
+      copyEntityTexture(gTextureCopy, ivec2(viewWidth, viewHeight), gtexture, normals, specular);
+      discard;
+   }
+   #endif
    vec4 baseColor = texture(gtexture, vTexCoord) * vec4(vColor.rgb, 1.0);
 
    #ifdef GBUFFERS_ALPHA_TEST

@@ -5,8 +5,6 @@ in vec4 at_midBlock;
 
 uniform mat4 shadowModelViewInverse;
 uniform sampler2D gtexture;
-uniform sampler2D normals;
-uniform sampler2D specular;
 uniform int gtextureId = 0;
 
 #define QUAD_WRITE
@@ -14,11 +12,11 @@ uniform int gtextureId = 0;
 #include "/lib/scene/quad-write.glsl"
 #include "/lib/scene/textures-write.glsl"
 
-void main() {
-   gl_Position = vec4(0.0 / 0.0);
+flat out uvec4 vTextureCopy;
 
+void main() {
    // Pending PBR copies must finish even while captured geometry is frozen.
-   uint textureID = captureEntityTexture(uint(gtextureId), gtexture, normals, specular);
+   uint textureID = captureEntityTexture(uint(gtextureId), gtexture, ivec2(shadowMapResolution), vTextureCopy, gl_Position);
    if (control.sceneFrozen != 0u) return;
 
    vec3 shadowViewSpacePos = (gl_ModelViewMatrix * vec4(gl_Vertex.xyz, 1.0)).xyz;

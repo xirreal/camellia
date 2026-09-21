@@ -17,9 +17,12 @@
 #define ENABLE_GBUFFER_CAPTURE
 #define SHADOW_CAPTURE_DISTANCE 128 //[128 256 512 1024]
 
+const int shadowMapResolution = 256;
+
 //#define ENABLE_DEBUG_OVERLAY
 //#define ENABLE_SORT_VALIDATION
 //#define ENABLE_QUAD_VALIDATION
+//#define ENABLE_SUBGROUP_VALIDATION
 //#define ENTITY_TEXTURES_DEBUG
 
 const float VALIDATION_MAX_QUAD_EXTENT = 64.0; // max player-space span on any axis

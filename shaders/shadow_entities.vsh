@@ -5,8 +5,6 @@ in vec2 mc_Entity;
 uniform vec4 entityColor;
 uniform mat4 shadowModelViewInverse;
 uniform sampler2D gtexture;
-uniform sampler2D normals;
-uniform sampler2D specular;
 uniform int gtextureId;
 uniform bool firstPersonCamera;
 uniform int entityId;
@@ -16,11 +14,11 @@ uniform int entityId;
 #include "/lib/scene/quad-write.glsl"
 #include "/lib/scene/textures-write.glsl"
 
-void main() {
-   gl_Position = vec4(0.0 / 0.0);
+flat out uvec4 vTextureCopy;
 
+void main() {
    // Pending PBR copies must finish even while captured geometry is frozen.
-   uint textureID = captureEntityTexture(uint(gtextureId), gtexture, normals, specular);
+   uint textureID = captureEntityTexture(uint(gtextureId), gtexture, ivec2(shadowMapResolution), vTextureCopy, gl_Position);
    if (control.sceneFrozen != 0u) return;
 
    // Mark current player quads so the ray tracer can skip them on primary rays

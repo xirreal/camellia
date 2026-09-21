@@ -50,6 +50,11 @@ layout(std430, binding = 1) CONTROL_BUFFER_QUALIFIERS buffer ControlBuffer {
    uint wideTaskCount;
    uint wideNodeCount;
    coherent uint blockAtlasTextureId;
+   uint quadSubgroupTests; // 332
+   uint quadSubgroupFull;
+   uint quadSubgroupConsecutive;
+   uint quadSubgroupAllocator;
+   uint quadSubgroupSlots;
 } control;
 
 #endif

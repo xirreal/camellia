@@ -110,6 +110,9 @@ option.ENTITY_PBR.comment=Uses captured entity normal and specular maps. Require
 option.ENABLE_QUAD_VALIDATION=Quad Validation
 option.ENABLE_QUAD_VALIDATION.comment=Displays captured-quad validation errors in the debug overlay.
 
+option.ENABLE_SUBGROUP_VALIDATION=Subgroup Validation
+option.ENABLE_SUBGROUP_VALIDATION.comment=Checks full vertex quads, consecutive vertex IDs, shared allocation IDs, and slots 0-3. Shows passing counts in the debug overlay.
+
 option.ENABLE_SORT_VALIDATION=Sort Validation
 option.ENABLE_SORT_VALIDATION.comment=Checks BVH sorting and leaf pairing, then displays any errors in the debug overlay.
 

@@ -26,6 +26,18 @@ vec3 gradient(float t) {
    return mix(vec3(0.4, 1.0, 0.4), vec3(0.9, 0.2, 0.25), t);
 }
 
+#ifdef ENABLE_SUBGROUP_VALIDATION
+void printSubgroupResult(uint passed) {
+   uint total = control.quadSubgroupTests;
+   text.fgCol = total == 0u ? vec4(0.6, 0.6, 0.6, 1.0)
+      : vec4(gradient(passed == total ? 0.0 : 1.0), 1.0);
+   printUnsignedIntWithSeparators(passed);
+   printString((_slash));
+   printUnsignedIntWithSeparators(total);
+   printLine();
+}
+#endif
+
 void main() {
    #ifdef ENABLE_DEBUG_OVERLAY
    #endif
@@ -69,6 +81,29 @@ void main() {
    printVec3(getSceneMax());
    printString((_clprn));
    printLine();
+
+   #ifdef ENABLE_SUBGROUP_VALIDATION
+   printLine();
+   text.fgCol = vec4(1.0);
+   printString((_S, _u, _b, _g, _r, _o, _u, _p, _space, _Q, _u, _a, _d, _s, _colon));
+   printLine();
+
+   text.fgCol = vec4(1.0);
+   printString((_space, _F, _u, _l, _l, _colon));
+   printSubgroupResult(control.quadSubgroupFull);
+
+   text.fgCol = vec4(1.0);
+   printString((_space, _V, _e, _r, _t, _i, _c, _e, _s, _colon));
+   printSubgroupResult(control.quadSubgroupConsecutive);
+
+   text.fgCol = vec4(1.0);
+   printString((_space, _A, _l, _l, _o, _c, _a, _t, _o, _r, _colon));
+   printSubgroupResult(control.quadSubgroupAllocator);
+
+   text.fgCol = vec4(1.0);
+   printString((_space, _S, _l, _o, _t, _s, _colon));
+   printSubgroupResult(control.quadSubgroupSlots);
+   #endif
 
    #ifdef ENTITY_TEXTURES_DEBUG
    printLine();

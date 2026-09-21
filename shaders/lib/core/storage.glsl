@@ -12,6 +12,9 @@ uniform float far;
 #extension GL_KHR_shader_subgroup_vote : require
 #extension GL_KHR_shader_subgroup_shuffle : require
 #extension GL_KHR_shader_subgroup_shuffle_relative : require
+#ifdef ENABLE_SUBGROUP_VALIDATION
+#extension GL_KHR_shader_subgroup_quad : require
+#endif
 
 uvec3 expandBits3D(uvec3 v) {
    v &= 0x000003ffu;
