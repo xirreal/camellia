@@ -15,7 +15,9 @@ layout(rgba8) uniform writeonly image2D entitySpecularAtlasImg;
 
 uint reserveEntityTexels(uint count) {
    uint offset = atomicAdd(textureDataOffset, 0u);
-   while (count <= MAX_TEXTURE_DATA - offset) {
+   // ponytail: cap CAS retries at 64; contention falls back instead of spinning forever.
+   for (uint attempt = 0u; attempt < 64u; ++attempt) {
+      if (offset > MAX_TEXTURE_DATA || count > MAX_TEXTURE_DATA - offset) return INVALID_ID;
       uint previous = atomicCompSwap(textureDataOffset, offset, offset + count);
       if (previous == offset) return offset;
       offset = previous;

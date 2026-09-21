@@ -222,10 +222,11 @@ void printUnsignedInt(uint value, int len) {
       );
 
    // Advance to end of the number
+   len = min(len, 32);
    text.charPos.x += len - 1;
 
    // Write number backwards
-   for (int i = 0; i < len; ++i) {
+   for (int i = 0; i < 32 && i < len; ++i) {
       printChar(digits[value % text.base]);
       value /= text.base;
       text.charPos.x -= 2;
@@ -362,17 +363,17 @@ void printUnsignedIntWithSeparators(uint value) {
 
    uint tmp = value;
    int len = 0;
-   while (tmp > 0u) {
+   for (int digit = 0; digit < 10 && tmp > 0u; ++digit) {
       tmp /= 10u;
       len++;
    }
 
    uint div = 1u;
-   for (int i = 1; i < len; ++i) {
+   for (int i = 1; i < 10 && i < len; ++i) {
       div *= 10u;
    }
 
-   for (int i = len; i > 0; --i) {
+   for (int i = min(len, 10); i > 0; --i) {
       uint d = value / div;
       printChar(digits[d]);
 

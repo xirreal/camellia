@@ -203,8 +203,9 @@ void plocMerge(uint selectedLaneID, uint L, uint R, uint S, bool isFinal) {
 
    bool finalBroadcast = subgroupShuffle(isFinal, selectedLaneID);
    uint threshold = finalBroadcast ? 1u : hplocSubgroupSize() / 2u;
+   uint mergeIterationLimit = hplocSubgroupSize();
 
-   while (numPrims > threshold) {
+   for (uint mergeIteration = 0u; mergeIteration < mergeIterationLimit && numPrims > threshold; ++mergeIteration) {
       uint NN = findNearestNeighbor(numPrims, boundsMin, boundsMax);
       numPrims = mergeClustersCreateBVH2Node(numPrims, NN, CI, boundsMin, boundsMax);
    }
@@ -233,7 +234,9 @@ void main() {
    uint R = i;
    bool laneActive = i < N;
 
-   while (subgroupAny(laneActive)) {
+   uint iterationLimit = min(N, uint(MAX_QUAD_COUNT));
+   // ponytail: valid parent links converge before N iterations; malformed links stop here.
+   for (uint iteration = 0u; iteration < iterationLimit && subgroupAny(laneActive); ++iteration) {
       uint split = INVALID_ID;
 
       if (laneActive) {
@@ -268,7 +271,7 @@ void main() {
 #ifdef MC_GL_VENDOR_AMD
       uint waveMask = mergeMask.x;
 
-      while (waveMask != 0u) {
+      for (uint mergeLane = uint(bitCount(waveMask)); mergeLane > 0u; --mergeLane) {
          uint laneID = uint(findLSB(waveMask));
          plocMerge(laneID, L, R, split, isFinal);
          waveMask &= (waveMask - 1u);
@@ -276,7 +279,7 @@ void main() {
 
       waveMask = mergeMask.y;
 
-      while (waveMask != 0u) {
+      for (uint mergeLane = uint(bitCount(waveMask)); mergeLane > 0u; --mergeLane) {
          uint laneID = 32u + uint(findLSB(waveMask));
          plocMerge(laneID, L, R, split, isFinal);
          waveMask &= (waveMask - 1u);
@@ -284,7 +287,7 @@ void main() {
 #else
       uint waveMask = mergeMask.x;
 
-      while (waveMask != 0u) {
+      for (uint mergeLane = uint(bitCount(waveMask)); mergeLane > 0u; --mergeLane) {
          uint laneID = findLSB(waveMask);
          plocMerge(laneID, L, R, split, isFinal);
          waveMask &= (waveMask - 1u);

@@ -52,6 +52,11 @@ bool bvhTraversalOverflow(BVHTraversalState state) {
    return state.overflow;
 }
 
+uint bvhTraversalBudget() {
+   // A valid BVH has fewer than 2N nodes; the stack allowance also breaks malformed cycles.
+   return min(control.sortTotal, uint(MAX_QUAD_COUNT)) * 2u + uint(BVH_STACK_SIZE);
+}
+
 #if BVH_STACK_MODE == 1
 ivec2 bvhImageStackCoord(int depth) {
    ivec2 invocation = ivec2(gl_GlobalInvocationID.xy);
@@ -172,8 +177,13 @@ bool bvhTraverseNode(inout BVHTraversalState state, vec3 invRd, vec3 rayOffset, 
 #endif
 
 bool bvhNextLeaf(inout BVHTraversalState state, vec3 invRd, vec3 rayOffset, float tMax) {
-   while (isInternalNode(state.nodeID)) {
+   uint stepLimit = bvhTraversalBudget();
+   for (uint step = 0u; step < stepLimit && isInternalNode(state.nodeID); ++step) {
       if (bvhTraverseNode(state, invRd, rayOffset, tMax)) return false;
+   }
+   if (isInternalNode(state.nodeID)) {
+      state.overflow = true;
+      return false;
    }
    return true;
 }
@@ -318,7 +328,9 @@ TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer, uint beforeQuad, float l
       BVHTraversalState traversal;
       bvhTraversalInit(traversal, sceneRoot);
       // support for layers (signs and banners)
-      while (bvhNextLeaf(traversal, invRd, rayOffset, tHit + layerEpsilon)) {
+      uint leafLimit = min(control.sortTotal, uint(MAX_QUAD_COUNT));
+      for (uint leafStep = 0u; leafStep < leafLimit; ++leafStep) {
+         if (!bvhNextLeaf(traversal, invRd, rayOffset, tHit + layerEpsilon)) break;
          uint prim = getClusterPrimID(traversal.nodeID);
          if (prim < numQuads) {
             QuadGeometry qg = quadGeometry[prim];
@@ -396,7 +408,8 @@ vec3 sampleHitAlbedo(TraceResult hit, vec3 ro, vec3 rd, vec4 texColor) {
    uint beforeQuad = hit.quadID;
    // Composite paint in reverse draw order, over the opaque cloth.
    // ponytail: one BVH walk per partial layer; gather layers if banners dominate ray time.
-   while (transmission > 0.0 && beforeQuad > 0u) {
+   uint layerLimit = min(beforeQuad, uint(MAX_QUAD_COUNT));
+   for (uint layerStep = 0u; layerStep < layerLimit && transmission > 0.0 && beforeQuad > 0u; ++layerStep) {
       TraceResult layer = traceBVH(ro, rd, true, beforeQuad, hit.t);
       if (!layer.hit) break;
       vec4 layerColor = sampleQuadTexture(quadAttributes[layer.quadID], layer.uv);
@@ -438,7 +451,9 @@ bool traceHardShadowVisible(vec3 ro, vec3 rd, float maxDist) {
    uint numQuads = control.sortTotal;
    BVHTraversalState traversal;
    bvhTraversalInit(traversal, sceneRoot);
-   while (bvhNextLeaf(traversal, invRd, rayOffset, maxDist)) {
+   uint leafLimit = min(control.sortTotal, uint(MAX_QUAD_COUNT));
+   for (uint leafStep = 0u; leafStep < leafLimit; ++leafStep) {
+      if (!bvhNextLeaf(traversal, invRd, rayOffset, maxDist)) break;
       uint prim = getClusterPrimID(traversal.nodeID);
       if (prim < numQuads) {
          QuadGeometry qg = quadGeometry[prim];

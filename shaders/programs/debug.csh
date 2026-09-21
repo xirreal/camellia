@@ -45,40 +45,51 @@ vec3 debugBVH(vec3 ro, vec3 rd, bool skipPlayer) {
    {
       BVHTraversalState traversal;
       bvhTraversalInit(traversal, sceneRoot);
-      while (true) {
-      costCounter += 1;
+      bool traversalFinished = false;
+      uint traversalLimit = bvhTraversalBudget();
+      for (uint traversalStep = 0u; traversalStep < traversalLimit; ++traversalStep) {
+         costCounter += 1;
 
-      uint prim = getClusterPrimID(traversal.nodeID);
+         uint prim = getClusterPrimID(traversal.nodeID);
 
-      if (!isInternalNode(traversal.nodeID)) {
-         if (skipPlayer && quadPlayerModel(prim)) {
-            if (bvhTraversalPop(traversal)) break;
+         if (!isInternalNode(traversal.nodeID)) {
+            if (skipPlayer && quadPlayerModel(prim)) {
+               if (bvhTraversalPop(traversal)) {
+                  traversalFinished = true;
+                  break;
+               }
+               continue;
+            }
+
+            QuadGeometry qg = quadGeometry[prim];
+            vec3 p0, p1, p2, p3;
+            unpackQuadGeometryPositions(qg, p0, p1, p2, p3);
+
+            float t;
+            vec2 bary;
+
+            costCounter += 5;
+
+            if (intersectTri(ro, rd, p0, p1, p2, t, bary) && t < hitT) {
+               hitT = t;
+            }
+
+            if (intersectTri(ro, rd, p0, p2, p3, t, bary) && t < hitT) {
+               hitT = t;
+            }
+            if (bvhTraversalPop(traversal)) {
+               traversalFinished = true;
+               break;
+            }
             continue;
          }
 
-         QuadGeometry qg = quadGeometry[prim];
-         vec3 p0, p1, p2, p3;
-         unpackQuadGeometryPositions(qg, p0, p1, p2, p3);
-
-         float t;
-         vec2 bary;
-
-         costCounter += 5;
-
-         if (intersectTri(ro, rd, p0, p1, p2, t, bary) && t < hitT) {
-            hitT = t;
+         if (bvhTraverseNode(traversal, invRd, rayOffset, hitT)) {
+            traversalFinished = true;
+            break;
          }
-
-         if (intersectTri(ro, rd, p0, p2, p3, t, bary) && t < hitT) {
-            hitT = t;
-         }
-         if (bvhTraversalPop(traversal)) break;
-         continue;
       }
-
-      if (bvhTraverseNode(traversal, invRd, rayOffset, hitT)) break;
-      }
-      overflow = overflow || bvhTraversalOverflow(traversal);
+      overflow = overflow || bvhTraversalOverflow(traversal) || !traversalFinished;
    }
 
    if (overflow) return vec3(1.0, 0.0, 1.0);
