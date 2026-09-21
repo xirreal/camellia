@@ -10,10 +10,19 @@ uniform float far;
 in vec2 mc_Entity;
 #endif
 
-#if defined GBUFFERS_GEOMETRY_CAPTURE && defined ENABLE_GBUFFER_CAPTURE
+#if (defined GBUFFERS_GEOMETRY_CAPTURE && defined ENABLE_GBUFFER_CAPTURE) || defined GBUFFERS_LAYER_CAPTURE
 #define QUAD_WRITE
 #include "/lib/core/storage.glsl"
 #include "/lib/scene/quad-write.glsl"
+#endif
+
+#ifdef GBUFFERS_LAYER_CAPTURE
+uniform int blockEntityId;
+uniform int gtextureId;
+uniform sampler2D gtexture;
+uniform sampler2D normals;
+uniform sampler2D specular;
+#include "/lib/scene/textures-write.glsl"
 #endif
 
 in vec4 at_tangent;
@@ -51,8 +60,22 @@ void main() {
    vTexCoord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
    #ifdef GBUFFERS_GEOMETRY_CAPTURE
    vBlockID = uint(mc_Entity.x);
+   #elif defined GBUFFERS_LAYER_CAPTURE
+   vBlockID = uint(blockEntityId);
    #else
    vBlockID = 0u;
+   #endif
+
+   #ifdef GBUFFERS_LAYER_CAPTURE
+   bool captureLayer = blockEntityId == 3 || blockEntityId == 4;
+   uint textureID = captureEntityTexture(uint(gtextureId), gtexture, normals, specular);
+   if (control.sceneFrozen == 0u) {
+      uint quadID, quadSlot;
+      getConditionalQuadWriteSlot(captureLayer, quadID, quadSlot);
+      float emission = blockEntityId == 3 && gl_MultiTexCoord1.x >= 240.0 ? 15.0 : 0.0;
+      writeQuad(quadID, quadSlot, vPlayerPos, vTexCoord, gl_Color.rgb,
+         uint(blockEntityId), textureID, emission, true, false, false);
+   }
    #endif
 
    #if defined GBUFFERS_GEOMETRY_CAPTURE && defined ENABLE_GBUFFER_CAPTURE

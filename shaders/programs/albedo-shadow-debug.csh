@@ -54,10 +54,8 @@ void main() {
          vec3 reflectedColor;
          if (reflectedHit.hit) {
             QuadAttributes qa = quadAttributes[reflectedHit.quadID];
-            vec3 reflectedAlbedo = pow(max(
-               sampleQuadTexture(qa, reflectedHit.uv).rgb * reflectedHit.vertexData.rgb,
-               vec3(0.0)
-            ), vec3(2.2));
+            vec3 reflectedAlbedo = sampleHitAlbedo(reflectedHit, reflectedOrigin, reflectedDir,
+               sampleQuadTexture(qa, reflectedHit.uv));
             vec3 hitPosition = reflectedOrigin + reflectedDir * reflectedHit.t;
             reflectedColor = shadeSimpleSurface(
                hitPosition, reflectedHit.normal, reflectedAlbedo, lightDir

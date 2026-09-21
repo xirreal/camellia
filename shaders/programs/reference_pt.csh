@@ -452,17 +452,8 @@ void main() {
          break;
       }
 
-      vec4 texColor;
-      if (bounceHit.textureID == 0u) {
-         texColor = texture(blockAtlas, bounceHit.uv);
-      } else {
-         #ifdef ENTITY_TEXTURES
-         texColor = sampleEntityTexture(bounceHit.textureID, bounceHit.uv);
-         #else
-         texColor = vec4(1.0);
-         #endif
-      }
-      vec3 bounceAlbedo = pow(texColor.rgb * bounceHit.vertexData.rgb, vec3(2.2));
+      vec4 texColor = sampleHitTexture(bounceHit);
+      vec3 bounceAlbedo = sampleHitAlbedo(bounceHit, origin, bounceDir, texColor);
 
       vec3 shadeNormal = bounceHit.normal;
       float roughness;
@@ -590,6 +581,9 @@ void main() {
 
       #ifdef MC_TEXTURE_FORMAT_LAB_PBR_1_3
       float emission = emissionMap * 20.0;
+      // glowing text
+      if (quadBlockID(bounceHit.quadID) == 3u)
+         emission = max(emission, pow(length(bounceAlbedo * 1.5), 2.2) * bounceHit.vertexData.a * 0.2);
       #else
       float emission = pow(length(bounceAlbedo * 1.5), 2.2) * bounceHit.vertexData.a * 0.2;
       #endif

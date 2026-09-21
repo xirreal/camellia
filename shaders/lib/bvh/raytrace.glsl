@@ -287,6 +287,8 @@ vec4 sampleQuadTexture(QuadAttributes qa, vec2 uv) {
 }
 
 bool quadAlphaSkipsIntersection(QuadAttributes qa, vec2 bary, int triIndex) {
+   if (qaBlockID(qa) == 4u)
+      return sampleQuadTexture(qa, interpolateUV(qa, bary, triIndex)).a == 0.0;
    #ifdef ALPHA_TEST
    bool alphaTested = qaAlphaTested(qa);
    if (!alphaTested) return false;
@@ -300,9 +302,11 @@ bool quadAlphaSkipsIntersection(QuadAttributes qa, vec2 bary, int triIndex) {
 
 const float DIAGONAL = sqrt(3.0);
 
-TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer) {
-   float tHit = (8.0 + (far * 16.0)) * DIAGONAL;
+TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer, uint beforeQuad, float layerT) {
+   const float layerEpsilon = 0.0001;
+   float tHit = layerT >= 0.0 ? layerT + layerEpsilon : (8.0 + (far * 16.0)) * DIAGONAL;
    uint hitQuad = INVALID_ID;
+   bool hitLayer = false;
    vec2 hitBary = vec2(0.0);
    int hitTri = 0;
 
@@ -310,21 +314,27 @@ TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer) {
    if (sceneRoot != INVALID_ID) {
       vec3 invRd = safeInvDir(rd);
       vec3 rayOffset = -ro * invRd;
-      uint numQuads = control.sortTotal;
+      uint numQuads = min(control.sortTotal, beforeQuad);
       BVHTraversalState traversal;
       bvhTraversalInit(traversal, sceneRoot);
-      while (bvhNextLeaf(traversal, invRd, rayOffset, tHit)) {
+      // support for layers (signs and banners)
+      while (bvhNextLeaf(traversal, invRd, rayOffset, tHit + layerEpsilon)) {
          uint prim = getClusterPrimID(traversal.nodeID);
          if (prim < numQuads) {
             QuadGeometry qg = quadGeometry[prim];
             vec2 bary;
             int tri;
-            float candidateT = tHit;
-            if (intersectQuadGeom(qg, ro, rd, candidateT, bary, tri)) {
+            float candidateT = tHit + layerEpsilon;
+            if (intersectQuadGeom(qg, ro, rd, candidateT, bary, tri) &&
+                (layerT < 0.0 || abs(candidateT - layerT) <= layerEpsilon)) {
                QuadAttributes qa = quadAttributes[prim];
-               if (!(skipPlayer && qaPlayerModel(qa)) && !quadAlphaSkipsIntersection(qa, bary, tri)) {
+               bool layer = qaBlockID(qa) == 3u || qaBlockID(qa) == 4u;
+               bool sameSurface = abs(candidateT - tHit) <= layerEpsilon && (layer || hitLayer);
+               bool nearer = sameSurface ? layer && (!hitLayer || prim > hitQuad) : candidateT < tHit;
+               if (nearer && !(skipPlayer && qaPlayerModel(qa)) && !quadAlphaSkipsIntersection(qa, bary, tri)) {
                   tHit = candidateT;
                   hitQuad = prim;
+                  hitLayer = layer;
                   hitBary = bary;
                   hitTri = tri;
                }
@@ -369,8 +379,33 @@ TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer) {
    return res;
 }
 
+TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer) {
+   return traceBVH(ro, rd, skipPlayer, INVALID_ID, -1.0);
+}
+
 TraceResult traceBVH(vec3 ro, vec3 rd) {
    return traceBVH(ro, rd, false);
+}
+
+vec3 sampleHitAlbedo(TraceResult hit, vec3 ro, vec3 rd, vec4 texColor) {
+   vec3 albedo = pow(max(texColor.rgb * hit.vertexData.rgb, vec3(0.0)), vec3(2.2));
+   if (quadBlockID(hit.quadID) != 4u || texColor.a == 1.0) return albedo;
+
+   albedo *= texColor.a;
+   float transmission = 1.0 - texColor.a;
+   uint beforeQuad = hit.quadID;
+   // Composite paint in reverse draw order, over the opaque cloth.
+   // ponytail: one BVH walk per partial layer; gather layers if banners dominate ray time.
+   while (transmission > 0.0 && beforeQuad > 0u) {
+      TraceResult layer = traceBVH(ro, rd, true, beforeQuad, hit.t);
+      if (!layer.hit) break;
+      vec4 layerColor = sampleQuadTexture(quadAttributes[layer.quadID], layer.uv);
+      albedo += transmission * layerColor.a *
+         pow(max(layerColor.rgb * layer.vertexData.rgb, vec3(0.0)), vec3(2.2));
+      transmission *= 1.0 - layerColor.a;
+      beforeQuad = layer.quadID;
+   }
+   return albedo;
 }
 
 bool shadowTriHit(QuadGeometry qg, QuadAttributes qa, vec2 bary, int triIndex, inout vec3 tint) {

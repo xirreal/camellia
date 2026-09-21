@@ -67,7 +67,7 @@ void main() {
    vec4 baseColor = texture(gtexture, vTexCoord) * vec4(vColor.rgb, 1.0);
 
    #ifdef GBUFFERS_ALPHA_TEST
-   if (baseColor.a < alphaTestRef) discard;
+   if (vBlockID == 4u ? baseColor.a == 0.0 : baseColor.a < alphaTestRef) discard;
    #endif
 
    vec3 linearAlbedo = pow(max(baseColor.rgb, vec3(0.0)), vec3(2.2));
