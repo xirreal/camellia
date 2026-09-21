@@ -17,6 +17,8 @@ uniform int gtextureId = 0;
 void main() {
    gl_Position = vec4(0.0 / 0.0);
 
+   // Pending PBR copies must finish even while captured geometry is frozen.
+   uint textureID = captureEntityTexture(uint(gtextureId), gtexture, normals, specular);
    if (control.sceneFrozen != 0u) return;
 
    vec3 shadowViewSpacePos = (gl_ModelViewMatrix * vec4(gl_Vertex.xyz, 1.0)).xyz;
@@ -25,8 +27,6 @@ void main() {
    vec2 coord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
    vec3 color = gl_Color.rgb;
    float emission = at_midBlock.w;
-
-   uint textureID = captureEntityTexture(uint(gtextureId), gtexture, normals, specular);
 
    uint quadID, quadSlot;
    getQuadWriteSlot(quadID, quadSlot);

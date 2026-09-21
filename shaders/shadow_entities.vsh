@@ -19,6 +19,8 @@ uniform int entityId;
 void main() {
    gl_Position = vec4(0.0 / 0.0);
 
+   // Pending PBR copies must finish even while captured geometry is frozen.
+   uint textureID = captureEntityTexture(uint(gtextureId), gtexture, normals, specular);
    if (control.sceneFrozen != 0u) return;
 
    // Mark current player quads so the ray tracer can skip them on primary rays
@@ -29,8 +31,6 @@ void main() {
 
    vec2 coord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
    vec3 color = mix(gl_Color.rgb, entityColor.rgb, entityColor.a);
-
-   uint textureID = captureEntityTexture(uint(gtextureId), gtexture, normals, specular);
 
    uint quadID, quadSlot;
    getQuadWriteSlot(quadID, quadSlot);

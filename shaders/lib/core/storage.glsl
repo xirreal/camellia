@@ -162,13 +162,19 @@ uint sortPrepareWorkgroupsForQuadEnd(uint quadEnd) {
 
 // IDs 0 and 65535 are reserved for the block atlas and fallback.
 const uint MAX_TEXTURES = 65534u;
+#ifdef ENTITY_PBR
+// Split the original ~1 GiB budget across three images, rounding up one row.
+const uint MAX_TEXTURE_DATA = 16384u * 5462u;
+#else
 const uint MAX_TEXTURE_DATA = 16384u * 16384u; // RGBA8 image texels
+#endif
 
 struct TextureInfo {
    uint key;
    uint baseOffset;
    uint sizeX;
    uint sizeY;
+   uint pbrPendingFrame; // first albedo capture, or INVALID_ID once PBR is ready
 };
 
 uint floatToOrderedUint(float v) {

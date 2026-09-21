@@ -4,6 +4,9 @@ in vec2 mc_Entity;
 in vec4 at_midBlock;
 
 uniform mat4 shadowModelViewInverse;
+uniform int gtextureId;
+uniform ivec2 gtextureSize;
+uniform sampler2D gtexture;
 
 #define QUAD_WRITE
 #include "/lib/core/storage.glsl"
@@ -13,6 +16,11 @@ void main() {
    gl_Position = vec4(0.0 / 0.0);
 
    if (control.sceneFrozen != 0u) return;
+   // Keep gtexture active so Iris tracks its ID; reject stale binding sizes.
+   if (subgroupElect() && control.blockAtlasTextureId == INVALID_ID && gtextureId > 0 &&
+       all(equal(gtextureSize, textureSize(gtexture, 0)))) {
+      atomicCompSwap(control.blockAtlasTextureId, INVALID_ID, uint(gtextureId));
+   }
 
    vec3 shadowViewSpacePos = (gl_ModelViewMatrix * vec4(gl_Vertex.xyz, 1.0)).xyz;
    vec3 playerSpacePos = (shadowModelViewInverse * vec4(shadowViewSpacePos, 1.0)).xyz;

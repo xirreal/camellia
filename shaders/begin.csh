@@ -28,7 +28,10 @@ void main() {
    // One workgroup: finish every cache clear before publishing reset state.
    bool resetTextures = control.lastTextureReloadCount != textureReloadCount || control.textureReloadDelay > 0u;
    if (resetTextures) {
-      for (uint slot = id; slot < MAX_TEXTURES; slot += 256u) textureMap[slot].key = 0u;
+      for (uint slot = id; slot < MAX_TEXTURES; slot += 256u) {
+         textureMap[slot].key = 0u;
+         textureMap[slot].pbrPendingFrame = INVALID_ID;
+      }
    }
    barrier();
    if (id != 0u) return;
@@ -39,6 +42,7 @@ void main() {
    if (resetTextures) {
       control.textureEntries = 0u;
       textureDataOffset = 0u;
+      control.blockAtlasTextureId = INVALID_ID;
       control.textureReloadDelay--;
    }
 

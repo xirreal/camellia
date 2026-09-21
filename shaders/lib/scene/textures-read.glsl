@@ -6,6 +6,10 @@
 
 #ifdef ENTITY_TEXTURES
 uniform sampler2D entityAtlas;
+#ifdef ENTITY_PBR
+uniform sampler2D entityNormalAtlas;
+uniform sampler2D entitySpecularAtlas;
+#endif
 #endif
 
 vec4 sampleEntityAtlas(uint textureID, vec2 uv, uint layer, vec4 fallback) {
@@ -13,10 +17,18 @@ vec4 sampleEntityAtlas(uint textureID, vec2 uv, uint layer, vec4 fallback) {
    if (textureID == 0u || textureID > MAX_TEXTURES) return fallback;
    TextureInfo entry = textureMap[textureID - 1u];
    if (entry.baseOffset == INVALID_ID) return fallback;
+#ifdef ENTITY_PBR
+   if (layer != 0u && entry.pbrPendingFrame != INVALID_ID) return fallback;
+#endif
    uvec2 size = uvec2(entry.sizeX, entry.sizeY);
    uvec2 texel = min(uvec2(clamp(uv, 0.0, 1.0) * vec2(size)), size - 1u);
-   uint address = entry.baseOffset + (layer * size.y + texel.y) * size.x + texel.x;
-   return texelFetch(entityAtlas, entityAtlasCoord(address), 0);
+   uint address = entry.baseOffset + texel.y * size.x + texel.x;
+   ivec2 coord = entityAtlasCoord(address);
+#ifdef ENTITY_PBR
+   if (layer == 1u) return texelFetch(entityNormalAtlas, coord, 0);
+   if (layer == 2u) return texelFetch(entitySpecularAtlas, coord, 0);
+#endif
+   return texelFetch(entityAtlas, coord, 0);
 #else
    return fallback;
 #endif

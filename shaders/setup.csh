@@ -19,9 +19,11 @@ void main() {
       textureDataOffset = 0u;
       control.lastTextureReloadCount = textureReloadCount;
       control.textureReloadDelay = 0u;
+      control.blockAtlasTextureId = INVALID_ID;
    }
 
    if (id < MAX_TEXTURES) {
       textureMap[id].key = 0u;
+      textureMap[id].pbrPendingFrame = INVALID_ID;
    }
 }

@@ -49,6 +49,7 @@ layout(std430, binding = 1) CONTROL_BUFFER_QUALIFIERS buffer ControlBuffer {
    uint wideWorkgroups;
    uint wideTaskCount;
    uint wideNodeCount;
+   coherent uint blockAtlasTextureId;
 } control;
 
 #endif
