@@ -9,6 +9,7 @@ uniform ivec2 gtextureSize;
 uniform sampler2D gtexture;
 
 #define QUAD_WRITE
+#define CAPTURE_DEBUG_PATH 2
 #include "/lib/core/storage.glsl"
 #include "/lib/scene/quad-write.glsl"
 

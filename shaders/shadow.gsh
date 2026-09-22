@@ -4,6 +4,7 @@ layout(triangles) in;
 layout(points, max_vertices = 0) out;
 
 #define QUAD_WRITE
+#define CAPTURE_DEBUG_PATH 9
 #define QUAD_WRITE_RECORDS_ONLY
 #include "/lib/core/storage.glsl"
 #include "/lib/scene/quad-write.glsl"
@@ -33,11 +34,15 @@ void main() {
    uint ballotCount = subgroupBallotBitCount(ballot);
 
    uint baseQuad = INVALID_ID;
-   if (subgroupElect()) {
+   bool allocationLeader = subgroupElect();
+   if (allocationLeader) {
       baseQuad = atomicAdd(quadCount, ballotCount);
    }
    baseQuad = subgroupBroadcastFirst(baseQuad);
 
+   #ifdef ENABLE_SUBGROUP_VALIDATION
+   validateTriangleAllocation(ballot, ballotCount, subgroupBallotExclusiveBitCount(ballot), baseQuad, allocationLeader);
+   #endif
    if (baseQuad + ballotCount > MAX_QUAD_COUNT) return;
 
    uint lane = subgroupBallotExclusiveBitCount(ballot);

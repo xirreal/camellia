@@ -8,6 +8,7 @@ uniform sampler2D gtexture;
 uniform int gtextureId = 0;
 
 #define QUAD_WRITE
+#define CAPTURE_DEBUG_PATH 4
 #include "/lib/core/storage.glsl"
 #include "/lib/scene/quad-write.glsl"
 #include "/lib/scene/textures-write.glsl"

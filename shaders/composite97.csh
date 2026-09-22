@@ -21,6 +21,7 @@ float triangleAreaSq(vec3 a, vec3 b, vec3 c) {
 }
 
 void main() {
+   if (control.sceneFrozen != 0u) return;
    uint gID = gl_GlobalInvocationID.x;
    uint numQuads = min(quadCount, uint(MAX_QUAD_COUNT));
    if (gID >= numQuads) return;

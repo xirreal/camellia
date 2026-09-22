@@ -10,6 +10,7 @@ uniform bool firstPersonCamera;
 uniform int entityId;
 
 #define QUAD_WRITE
+#define CAPTURE_DEBUG_PATH 3
 #include "/lib/core/storage.glsl"
 #include "/lib/scene/quad-write.glsl"
 #include "/lib/scene/textures-write.glsl"

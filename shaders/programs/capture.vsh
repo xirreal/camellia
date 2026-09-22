@@ -12,6 +12,15 @@ in vec2 mc_Entity;
 
 #if (defined GBUFFERS_GEOMETRY_CAPTURE && defined ENABLE_GBUFFER_CAPTURE) || defined GBUFFERS_LAYER_CAPTURE
 #define QUAD_WRITE
+#ifdef GBUFFERS_LAYER_CAPTURE
+#define CAPTURE_DEBUG_PATH 8
+#elif defined GBUFFERS_TRANSLUCENT_GEOMETRY
+#define CAPTURE_DEBUG_PATH 7
+#elif defined GBUFFERS_ALPHA_GEOMETRY
+#define CAPTURE_DEBUG_PATH 6
+#else
+#define CAPTURE_DEBUG_PATH 5
+#endif
 #include "/lib/core/storage.glsl"
 #include "/lib/scene/quad-write.glsl"
 #endif

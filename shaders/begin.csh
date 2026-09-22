@@ -117,5 +117,18 @@ void main() {
       control.quadSubgroupConsecutive = 0u;
       control.quadSubgroupAllocator = 0u;
       control.quadSubgroupSlots = 0u;
+      #ifdef ENABLE_SUBGROUP_VALIDATION
+      control.captureDebugVersion = 1u;
+      control.captureDebugFrame = uint(frameCounter);
+      control.captureComputeSize = gl_SubgroupSize;
+      control.captureDebugPaths = CAPTURE_DEBUG_PATHS;
+      for (uint path = 0u; path < control.captureDebugPaths; ++path) {
+         control.captureSubgroups[path] = CaptureSubgroupDebug(
+            0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+            0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+            uvec4(0u), uvec4(0u), uvec4(0u), uvec4(0u),
+            uvec4(0u), uvec4(0u), uvec4(0u), uvec4(0u));
+      }
+      #endif
    }
 }

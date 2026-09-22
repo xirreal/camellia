@@ -27,8 +27,7 @@ vec3 gradient(float t) {
 }
 
 #ifdef ENABLE_SUBGROUP_VALIDATION
-void printSubgroupResult(uint passed) {
-   uint total = control.quadSubgroupTests;
+void printSubgroupResult(uint passed, uint total) {
    text.fgCol = total == 0u ? vec4(0.6, 0.6, 0.6, 1.0)
       : vec4(gradient(passed == total ? 0.0 : 1.0), 1.0);
    printUnsignedIntWithSeparators(passed);
@@ -81,29 +80,6 @@ void main() {
    printVec3(getSceneMax());
    printString((_clprn));
    printLine();
-
-   #ifdef ENABLE_SUBGROUP_VALIDATION
-   printLine();
-   text.fgCol = vec4(1.0);
-   printString((_S, _u, _b, _g, _r, _o, _u, _p, _space, _Q, _u, _a, _d, _s, _colon));
-   printLine();
-
-   text.fgCol = vec4(1.0);
-   printString((_space, _F, _u, _l, _l, _colon));
-   printSubgroupResult(control.quadSubgroupFull);
-
-   text.fgCol = vec4(1.0);
-   printString((_space, _V, _e, _r, _t, _i, _c, _e, _s, _colon));
-   printSubgroupResult(control.quadSubgroupConsecutive);
-
-   text.fgCol = vec4(1.0);
-   printString((_space, _A, _l, _l, _o, _c, _a, _t, _o, _r, _colon));
-   printSubgroupResult(control.quadSubgroupAllocator);
-
-   text.fgCol = vec4(1.0);
-   printString((_space, _S, _l, _o, _t, _s, _colon));
-   printSubgroupResult(control.quadSubgroupSlots);
-   #endif
 
    #ifdef ENTITY_TEXTURES_DEBUG
    printLine();
@@ -256,6 +232,79 @@ void main() {
    #endif
 
    endText(color);
+
+   #ifdef ENABLE_SUBGROUP_VALIDATION
+   // Keep capture diagnostics visible even when sort/geometry diagnostics are on.
+   beginText(ivec2(coord * 0.25), ivec2(max(2, int(viewWidth * 0.25) - 204), int(viewHeight * 0.25) - 1));
+   text.bgCol = vec4(0.0, 0.0, 0.0, 0.7);
+   uint selected = 0u, aligned = 0u, enabled = 0u, groups = 0u, operations = 0u, capacity = 0u;
+   uint writers = 0u, sources = 0u, data = 0u, triangleWriters = 0u;
+   for (uint path = 0u; path < control.captureDebugPaths; ++path) {
+      selected += control.captureSubgroups[path].selected;
+      aligned += control.captureSubgroups[path].aligned;
+      groups += control.captureSubgroups[path].groups;
+      operations += control.captureSubgroups[path].operations;
+      capacity += control.captureSubgroups[path].capacity;
+      writers += control.captureSubgroups[path].writeTests;
+      sources += control.captureSubgroups[path].writeSources;
+      data += control.captureSubgroups[path].writeData;
+      if (path != 9u) enabled += control.captureSubgroups[path].enabled;
+      else triangleWriters = control.captureSubgroups[path].writeTests;
+   }
+   text.fgCol = vec4(1.0);
+   printString((_C, _a, _p, _t, _u, _r, _e, _space, _c, _h, _e, _c, _k, _s));
+   printLine();
+   printString((_C, _o, _m, _p, _u, _t, _e, _space, _s, _i, _z, _e, _colon));
+   printUnsignedInt(control.captureComputeSize);
+   printLine();
+   printString((_F, _u, _l, _l, _colon));
+   printSubgroupResult(control.quadSubgroupFull, control.quadSubgroupTests);
+   text.fgCol = vec4(1.0);
+   printString((_O, _r, _d, _e, _r, _colon));
+   printSubgroupResult(control.quadSubgroupConsecutive, control.quadSubgroupTests);
+   text.fgCol = vec4(1.0);
+   printString((_A, _l, _i, _g, _n, _colon));
+   printSubgroupResult(aligned, control.quadSubgroupTests);
+   text.fgCol = vec4(1.0);
+   printString((_S, _e, _l, _e, _c, _t, _colon));
+   printSubgroupResult(selected, control.quadSubgroupTests);
+   text.fgCol = vec4(1.0);
+   printString((_A, _l, _l, _o, _c, _a, _t, _o, _r, _colon));
+   printSubgroupResult(control.quadSubgroupAllocator, enabled);
+   text.fgCol = vec4(1.0);
+   printString((_S, _l, _o, _t, _s, _colon));
+   printSubgroupResult(control.quadSubgroupSlots, enabled);
+   text.fgCol = vec4(1.0);
+   printString((_O, _p, _s, _colon));
+   printSubgroupResult(groups - operations, groups);
+   text.fgCol = vec4(1.0);
+   printString((_W, _r, _i, _t, _e, _space, _s, _r, _c, _colon));
+   printSubgroupResult(sources, writers - triangleWriters);
+   text.fgCol = vec4(1.0);
+   printString((_W, _r, _i, _t, _e, _space, _d, _a, _t, _a, _colon));
+   printSubgroupResult(data, writers);
+   text.fgCol = vec4(1.0);
+   printString((_D, _r, _o, _p, _p, _e, _d, _colon));
+   text.fgCol = vec4(gradient(capacity == 0u ? 0.0 : 1.0), 1.0);
+   printUnsignedIntWithSeparators(capacity);
+   printLine();
+   printLine();
+   text.fgCol = vec4(1.0);
+   printString((_P, _a, _t, _h, _space, _G, _r, _o, _u, _p, _s, _space, _F, _l, _a, _g, _s));
+   printLine();
+   for (uint path = 0u; path < control.captureDebugPaths; ++path) {
+      uint count = control.captureSubgroups[path].groups;
+      uint flags = control.captureSubgroups[path].firstFailure;
+      text.fgCol = count == 0u ? vec4(0.6, 0.6, 0.6, 1.0) : vec4(gradient(flags == 0u ? 0.0 : 1.0), 1.0);
+      printUnsignedInt(path);
+      printString((_space));
+      printUnsignedIntWithSeparators(count);
+      printString((_space));
+      printUnsignedInt(flags);
+      printLine();
+   }
+   endText(color);
+   #endif
 
    imageStore(colorimg0, coord, vec4(color, 1.0));
 }

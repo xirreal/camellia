@@ -5,6 +5,37 @@
 #define CONTROL_BUFFER_QUALIFIERS restrict
 #endif
 
+#ifdef ENABLE_SUBGROUP_VALIDATION
+// 192 bytes per capture path. Layout and failure bits: docs/capture-debug.md.
+struct CaptureSubgroupDebug {
+   uint groups;
+   uint sizeMask;
+   uint tests;
+   uint full;
+   uint selected;
+   uint ordered;
+   uint aligned;
+   uint allocated;
+   uint slots;
+   uint capacity;
+   uint operations;
+   uint writeTests;
+   uint writeSources;
+   uint writeData;
+   uint enabled;
+   uint firstFailure;
+   uvec4 exampleInfo;
+   uvec4 exampleLive;
+   uvec4 exampleEnabled;
+   uvec4 exampleVertices;
+   uvec4 exampleQuadIDs;
+   uvec4 exampleSlots;
+   uvec4 exampleInstances;
+   uvec4 exampleContext;
+};
+const uint CAPTURE_DEBUG_PATHS = 10u;
+#endif
+
 layout(std430, binding = 1) CONTROL_BUFFER_QUALIFIERS buffer ControlBuffer {
    uint sortDispatchX; // 0
    uint sortDispatchY; // 4
@@ -55,6 +86,13 @@ layout(std430, binding = 1) CONTROL_BUFFER_QUALIFIERS buffer ControlBuffer {
    uint quadSubgroupConsecutive;
    uint quadSubgroupAllocator;
    uint quadSubgroupSlots;
+#ifdef ENABLE_SUBGROUP_VALIDATION
+   uint captureDebugVersion; // 352
+   uint captureDebugFrame;
+   uint captureComputeSize;
+   uint captureDebugPaths;
+   CaptureSubgroupDebug captureSubgroups[]; // 368; 10 * 192 bytes
+#endif
 } control;
 
 #endif

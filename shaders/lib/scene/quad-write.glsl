@@ -16,6 +16,10 @@
 #include "/lib/buffers/quad-geometry.glsl"
 #include "/lib/buffers/quad-attributes.glsl"
 
+#ifdef ENABLE_SUBGROUP_VALIDATION
+#include "/lib/scene/capture-debug.glsl"
+#endif
+
 #ifndef QUAD_WRITE_RECORDS_ONLY
 void getConditionalQuadWriteSlot(bool enabled, out uint quadID, out uint slot) {
    uvec4 activeMask = subgroupBallot(enabled);
@@ -23,7 +27,8 @@ void getConditionalQuadWriteSlot(bool enabled, out uint quadID, out uint slot) {
    uint quadAlloc = (activeThreads + 3u) >> 2u;
 
    uint baseQuad = INVALID_ID;
-   if (subgroupElect() && quadAlloc != 0u) {
+   bool allocationLeader = subgroupElect();
+   if (allocationLeader && quadAlloc != 0u) {
       baseQuad = atomicAdd(quadCount, quadAlloc);
    }
    baseQuad = subgroupBroadcastFirst(baseQuad);
@@ -35,48 +40,7 @@ void getConditionalQuadWriteSlot(bool enabled, out uint quadID, out uint slot) {
    if (!enabled || quadID >= MAX_QUAD_COUNT) quadID = INVALID_ID;
 
    #ifdef ENABLE_SUBGROUP_VALIDATION
-   if (enabled) {
-      uint quadBase = gl_SubgroupInvocationID & ~3u;
-      bool fullQuad =
-         subgroupBallotBitExtract(activeMask, quadBase) &&
-         subgroupBallotBitExtract(activeMask, quadBase + 1u) &&
-         subgroupBallotBitExtract(activeMask, quadBase + 2u) &&
-         subgroupBallotBitExtract(activeMask, quadBase + 3u);
-      bool consecutiveVertices = false;
-      bool allocatorMatchesQuad = false;
-      bool slotsMatch = false;
-
-      if (fullQuad) {
-         int v0 = subgroupQuadBroadcast(gl_VertexID, 0);
-         int v1 = subgroupQuadBroadcast(gl_VertexID, 1);
-         int v2 = subgroupQuadBroadcast(gl_VertexID, 2);
-         int v3 = subgroupQuadBroadcast(gl_VertexID, 3);
-         consecutiveVertices = v1 == v0 + 1 && v2 == v0 + 2 && v3 == v0 + 3;
-
-         uint q0 = subgroupQuadBroadcast(quadID, 0);
-         uint q1 = subgroupQuadBroadcast(quadID, 1);
-         uint q2 = subgroupQuadBroadcast(quadID, 2);
-         uint q3 = subgroupQuadBroadcast(quadID, 3);
-         allocatorMatchesQuad = q0 == q1 && q0 == q2 && q0 == q3;
-
-         uint s0 = subgroupQuadBroadcast(slot, 0);
-         uint s1 = subgroupQuadBroadcast(slot, 1);
-         uint s2 = subgroupQuadBroadcast(slot, 2);
-         uint s3 = subgroupQuadBroadcast(slot, 3);
-         slotsMatch = s0 == 0u && s1 == 1u && s2 == 2u && s3 == 3u;
-      }
-
-      uint testLeader = uint((gl_SubgroupInvocationID & 3u) == 0u);
-      uint tests = subgroupAdd(testLeader);
-      uvec4 passed = subgroupAdd(uvec4(fullQuad, consecutiveVertices, allocatorMatchesQuad, slotsMatch) * testLeader);
-      if (subgroupElect()) {
-         atomicAdd(control.quadSubgroupTests, tests);
-         atomicAdd(control.quadSubgroupFull, passed.x);
-         atomicAdd(control.quadSubgroupConsecutive, passed.y);
-         atomicAdd(control.quadSubgroupAllocator, passed.z);
-         atomicAdd(control.quadSubgroupSlots, passed.w);
-      }
-   }
+   validateQuadAllocation(activeMask, activeThreads, lane, baseQuad, allocationLeader, quadID, slot);
    #endif
 }
 
@@ -91,6 +55,9 @@ void writeQuadRecords(
    uint blockID, uint textureID, float emission,
    bool alphaTested, bool translucent, bool isPlayer
 ) {
+   #if defined ENABLE_SUBGROUP_VALIDATION && defined QUAD_WRITE_RECORDS_ONLY
+   validateTriangleWrite(quadID, p0, p1, p2, p3, uv0, uv1, uv2, tintColor, emission);
+   #endif
    uint mat = (uint(clamp(emission, 0.0, 15.0))) |
          (alphaTested ? 0x10u : 0u) |
          (translucent ? 0x20u : 0u) |
@@ -112,6 +79,7 @@ void writeQuadRecords(
    quadAttributeWords[base + 3u] = packHalf2x16(uv2);
 }
 
+#ifndef QUAD_WRITE_RECORDS_ONLY
 void writeQuad(
    uint quadID, uint slot, vec3 pos, vec2 uv, vec3 tintColor,
    uint blockID, uint textureID, float emission,
@@ -128,6 +96,9 @@ void writeQuad(
       (translucent ? 0x20u : 0u) | (isPlayer ? 0x40u : 0u);
    uint material = (blockID & 0xffu) | (mat << 8u) | ((textureID & 0xffffu) << 15u);
    material = subgroupShuffle(material, first);
+   #ifdef ENABLE_SUBGROUP_VALIDATION
+   validateQuadWrite(quadID, slot, pos, delta, uv, tintColor, emission);
+   #endif
    if (quadID == INVALID_ID) return;
 
    uvec2 words;
@@ -139,5 +110,6 @@ void writeQuad(
    quadAttributeWords[quadID * 4u + ((slot + 1u) & 3u)] = slot == 3u
       ? material | (all(equal(p2, pos)) ? 0x80000000u : 0u) : packHalf2x16(uv);
 }
+#endif
 
 #endif
