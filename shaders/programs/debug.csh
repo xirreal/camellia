@@ -62,6 +62,7 @@ vec3 debugBVH(vec3 ro, vec3 rd, bool skipPlayer) {
             }
 
             QuadGeometry qg = quadGeometry[prim];
+            QuadAttributes qa = quadAttributes[prim];
             vec3 p0, p1, p2, p3;
             unpackQuadGeometryPositions(qg, p0, p1, p2, p3);
 
@@ -70,11 +71,11 @@ vec3 debugBVH(vec3 ro, vec3 rd, bool skipPlayer) {
 
             costCounter += 5;
 
-            if (intersectTri(ro, rd, p0, p1, p2, t, bary) && t < hitT) {
+            if (intersectTri(ro, rd, p0, p1, p2, qaTranslucent(qa), t, bary) && t < hitT) {
                hitT = t;
             }
 
-            if (intersectTri(ro, rd, p0, p2, p3, t, bary) && t < hitT) {
+            if (intersectTri(ro, rd, p0, p2, p3, qaTranslucent(qa), t, bary) && t < hitT) {
                hitT = t;
             }
             if (bvhTraversalPop(traversal)) {

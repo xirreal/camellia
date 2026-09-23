@@ -188,13 +188,13 @@ bool bvhNextLeaf(inout BVHTraversalState state, vec3 invRd, vec3 rayOffset, floa
    return true;
 }
 
-bool intersectTri(vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, out float t, out vec2 bary) {
+bool intersectTri(vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, bool doubleSided, out float t, out vec2 bary) {
    vec3 e1 = v1 - v0;
    vec3 e2 = v2 - v0;
    vec3 p = cross(rd, e2);
    float det = dot(e1, p);
 
-   if (abs(det) < 1e-8) return false;
+   if (doubleSided ? abs(det) < 1e-8 : det <= 1e-8) return false;
    float invDet = 1.0 / det;
 
    vec3 s = ro - v0;
@@ -213,20 +213,20 @@ bool intersectTri(vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, out float t, out 
    return true;
 }
 
-bool intersectQuadGeom(QuadGeometry qg, vec3 ro, vec3 rd, inout float tHit, out vec2 hitBary, out int hitTri) {
+bool intersectQuadGeom(QuadGeometry qg, vec3 ro, vec3 rd, bool doubleSided, inout float tHit, out vec2 hitBary, out int hitTri) {
    vec3 p0, p1, p2, p3;
    unpackQuadGeometryPositions(qg, p0, p1, p2, p3);
 
    float t;
    vec2 bary;
 
-   if (intersectTri(ro, rd, p0, p1, p2, t, bary) && t < tHit) {
+   if (intersectTri(ro, rd, p0, p1, p2, doubleSided, t, bary) && t < tHit) {
       tHit = t;
       hitBary = bary;
       hitTri = 0;
       return true;
    }
-   if (intersectTri(ro, rd, p0, p2, p3, t, bary) && t < tHit) {
+   if (intersectTri(ro, rd, p0, p2, p3, doubleSided, t, bary) && t < tHit) {
       tHit = t;
       hitBary = bary;
       hitTri = 1;
@@ -312,7 +312,7 @@ bool quadAlphaSkipsIntersection(QuadAttributes qa, vec2 bary, int triIndex) {
 
 const float DIAGONAL = sqrt(3.0);
 
-TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer, uint beforeQuad, float layerT) {
+TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer, uint beforeQuad, float layerT, bool includeBackfaces) {
    const float layerEpsilon = 0.0001;
    float tHit = layerT >= 0.0 ? layerT + layerEpsilon : (8.0 + (far * 16.0)) * DIAGONAL;
    uint hitQuad = INVALID_ID;
@@ -334,12 +334,12 @@ TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer, uint beforeQuad, float l
          uint prim = getClusterPrimID(traversal.nodeID);
          if (prim < numQuads) {
             QuadGeometry qg = quadGeometry[prim];
+            QuadAttributes qa = quadAttributes[prim];
             vec2 bary;
             int tri;
             float candidateT = tHit + layerEpsilon;
-            if (intersectQuadGeom(qg, ro, rd, candidateT, bary, tri) &&
+            if (intersectQuadGeom(qg, ro, rd, includeBackfaces || qaTranslucent(qa), candidateT, bary, tri) &&
                 (layerT < 0.0 || abs(candidateT - layerT) <= layerEpsilon)) {
-               QuadAttributes qa = quadAttributes[prim];
                bool layer = qaBlockID(qa) == 3u || qaBlockID(qa) == 4u;
                bool sameSurface = abs(candidateT - tHit) <= layerEpsilon && (layer || hitLayer);
                bool nearer = sameSurface ? layer && (!hitLayer || prim > hitQuad) : candidateT < tHit;
@@ -389,6 +389,10 @@ TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer, uint beforeQuad, float l
    }
 
    return res;
+}
+
+TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer, uint beforeQuad, float layerT) {
+   return traceBVH(ro, rd, skipPlayer, beforeQuad, layerT, false);
 }
 
 TraceResult traceBVH(vec3 ro, vec3 rd, bool skipPlayer) {
@@ -457,14 +461,14 @@ bool traceHardShadowVisible(vec3 ro, vec3 rd, float maxDist) {
       uint prim = getClusterPrimID(traversal.nodeID);
       if (prim < numQuads) {
          QuadGeometry qg = quadGeometry[prim];
+         QuadAttributes qa = quadAttributes[prim];
          vec3 p0, p1, p2, p3;
          unpackQuadGeometryPositions(qg, p0, p1, p2, p3);
          float t0, t1;
          vec2 b0, b1;
-         bool h0 = intersectTri(ro, rd, p0, p1, p2, t0, b0) && t0 < maxDist;
-         bool h1 = intersectTri(ro, rd, p0, p2, p3, t1, b1) && t1 < maxDist;
+         bool h0 = intersectTri(ro, rd, p0, p1, p2, qaTranslucent(qa), t0, b0) && t0 < maxDist;
+         bool h1 = intersectTri(ro, rd, p0, p2, p3, qaTranslucent(qa), t1, b1) && t1 < maxDist;
          if (h0 || h1) {
-            QuadAttributes qa = quadAttributes[prim];
             if (h0) {
                if (shadowTriHit(qg, qa, b0, 0, tint)) return false;
                if (any(lessThan(tint, vec3(0.999)))) return false;

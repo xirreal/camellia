@@ -1,4 +1,10 @@
 # Depth of Field
+screen.POST=Post Processing
+option.ENABLE_BLOOM=FFT Bloom
+option.ENABLE_BLOOM.comment=Convolves bright areas with a point spread function generated from the camera aperture settings.
+option.BLOOM_STRENGTH=Bloom Strength
+option.BLOOM_STRENGTH.comment=Amount of camera bloom added before tone mapping.
+
 option.DOF_ENABLED=Depth of Field
 option.DOF_ENABLED.comment=Enables thin lens depth of field simulation. Out-of-focus areas will appear blurred based on camera settings.
 
@@ -42,6 +48,9 @@ value.MAX_QUAD_COUNT.33554432=4.91 GiB
 
 option.GLASS_CAUSTICS=Refractive Caustics
 option.GLASS_CAUSTICS.comment=Enables guided sunlight estimators for refractive caustics and low-roughness specular highlights at extra ray tracing cost.
+
+option.SUN_REFLECTIONS=Sun Disk Reflections
+option.SUN_REFLECTIONS.comment=Shows the sun disk in water and glass reflections and refractions. Disable to reduce bright noise from these paths.
 
 option.GLASS_CAUSTIC_DISPERSION=Caustic Dispersion
 option.GLASS_CAUSTIC_DISPERSION.comment=Separates refractive glass and water caustics by wavelength. Produces colored caustics with additional color noise.

@@ -33,18 +33,11 @@ uniform int randomSeed;
 const int MAX_BOUNCES = 8;
 const float SHADOW_MAX_DIST = 256.0;
 
-#define DOF_ENABLED
-#define DOF_AUTOFOCUS
-#define DOF_FOCAL_LENGTH 35.0   //[17.0 24.0 35.0 50.0 85.0 105.0 135.0 200.0 250.0 300.0]
-#define DOF_FSTOP 16.0           //[1.4 1.8 2.0 2.4 2.8 4.0 5.6 8.0 11.0 16.0]
-#define DOF_FOCUS_DISTANCE 5.0  //[1.0 2.0 3.0 4.0 5.0 7.0 10.0 15.0 20.0 30.0 50.0 100.0]
-#define DOF_SENSOR_WIDTH 36.0   //[23.5 28.7 36.0 44.0 53.0]
-#define DOF_BLADES 0            //[0 3 4 5 6 7 8 9 10 11 12 13 14 15 16]
-
 const float WATER_IOR = 1.33;
 const float WATER_WAVE_STRENGTH = 0.1;
 
 #define GLASS_CAUSTICS
+//#define SUN_REFLECTIONS
 #define GLASS_CAUSTIC_DISPERSION
 #define GLASS_CAUSTIC_SAMPLES 1        //[0 1 2 4]
 #define GLASS_CAUSTIC_CONE_DEGREES 4.0 //[1.0 2.0 4.0 8.0 12.0 16.0]
@@ -157,7 +150,7 @@ vec3 refractiveShadeNormal(TraceResult hit, vec3 incidentDir, vec3 baseColor) {
    return normalize(mix(hit.normal, shadeNormal, normalWeight));
 }
 
-SunVisibility traceSunVisibility(vec3 ro, vec3 rd, float maxDist, vec3 lightDir, float sunCosThreshold, float glassIOR, float waterIOR, vec3 spectralWeight, bool startInsideWater) {
+SunVisibility traceSunVisibility(vec3 ro, vec3 rd, float maxDist, vec3 lightDir, float sunCosThreshold, float glassIOR, float waterIOR, vec3 spectralWeight, bool startInsideWater, bool includeBackfaces) {
    SunVisibility res;
    res.transmittance = vec3(1.0);
    res.finalDir = rd;
@@ -173,7 +166,7 @@ SunVisibility traceSunVisibility(vec3 ro, vec3 rd, float maxDist, vec3 lightDir,
    vec3 mediumColor = vec3(1.0);
 
    for (int i = 0; i < GLASS_SHADOW_MAX_BENDS; i++) {
-      TraceResult hit = traceBVH(pos, dir);
+      TraceResult hit = traceBVH(pos, dir, false, INVALID_ID, -1.0, includeBackfaces);
       if (!hit.hit || traveled + hit.t >= maxDist) {
          float remaining = max(maxDist - traveled, 0.0);
          if (insideWaterShadow) {
@@ -387,12 +380,16 @@ void main() {
    bool isDay = worldSunDir.y >= 0.0;
    vec3 lightIlluminance = isDay ? SUN_ILLUMINANCE : MOON_ILLUMINANCE;
    vec3 lightTint = isDay ? vec3(1.0, 0.95, 0.8) : vec3(0.7, 0.85, 1.0);
+   float sunDiskCos = cos(0.00465);
+   vec3 sunDiskRadiance = SUN_ILLUMINANCE / (2.0 * PI * (1.0 - sunDiskCos));
    float referenceGlassIOR = glassReferenceIOR();
 
    TraceResult primaryHit = traceBVH(ro, rd, true);
 
    if (!primaryHit.hit) {
       vec3 sky = sampleSky(rd, worldSunDir);
+      if (isDay && dot(rd, worldSunDir) >= sunDiskCos)
+         sky += sunDiskRadiance * atmosphereTransmittance(rd);
 
       vec4 prev = texture(colortex5, rawUV);
       float frameCount = prev.a;
@@ -421,6 +418,7 @@ void main() {
    bool hasFixedDir = true;
    TraceResult cachedHit = primaryHit;
    bool hasCachedHit = true;
+   bool sunCoveredByMIS = false;
 
    if (isEyeInWater == 1) {
       insideMedium = true;
@@ -448,9 +446,15 @@ void main() {
       }
 
       if (!bounceHit.hit) {
-         radiance += throughput * sampleSky(bounceDir, worldSunDir);
+         vec3 sky = sampleSky(bounceDir, worldSunDir);
+         #ifdef SUN_REFLECTIONS
+         if (!sunCoveredByMIS && isDay && dot(bounceDir, worldSunDir) >= sunDiskCos)
+            sky += sunDiskRadiance * atmosphereTransmittance(bounceDir);
+         #endif
+         radiance += throughput * sky;
          break;
       }
+      sunCoveredByMIS = false;
 
       vec4 texColor = sampleHitTexture(bounceHit);
       vec3 bounceAlbedo = sampleHitAlbedo(bounceHit, origin, bounceDir, texColor);
@@ -628,7 +632,7 @@ void main() {
          bool ngVisible = dot(N_geom, sampleDir) > 0.0;
 
          if (frontLit && sNdotL > 0.0 && ngVisible) {
-            SunVisibility shadow = traceSunVisibility(shadowOrigin, sampleDir, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, WATER_IOR, vec3(1.0), shadowStartsInWater);
+            SunVisibility shadow = traceSunVisibility(shadowOrigin, sampleDir, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, WATER_IOR, vec3(1.0), shadowStartsInWater, false);
             if (shadow.visible) {
                vec3 brdf = evalBRDF(N, V, sampleDir, diffuseAlbedo, roughness, metallic, F0, F82tint);
                // Marginal BRDF pdf at the NEE direction (for balance heuristic).
@@ -644,7 +648,7 @@ void main() {
 
          if (backLit) {
             vec3 sssOrigin = offsetRayOrigin(hitPoint, -N);
-            SunVisibility shadow = traceSunVisibility(sssOrigin, sampleDir, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, WATER_IOR, vec3(1.0), shadowStartsInWater);
+            SunVisibility shadow = traceSunVisibility(sssOrigin, sampleDir, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, WATER_IOR, vec3(1.0), shadowStartsInWater, true);
             if (shadow.visible) {
                float wrap = max(-sNdotL, 0.0);
                vec3 sssColor = diffuseAlbedo * (1.0 - metallic);
@@ -665,7 +669,7 @@ void main() {
             if (gNdotL > 0.0 && dot(N_geom, guideDir) > 0.0 && dot(guideDir, lightDir) >= sunCosThreshold) {
                float pdfSpecGuide = pdfGGXVNDFL(N, V, guideDir, roughness);
                if (pdfSpecGuide > 0.0) {
-                  SunVisibility shadow = traceSunVisibility(shadowOrigin, guideDir, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, WATER_IOR, vec3(1.0), shadowStartsInWater);
+                  SunVisibility shadow = traceSunVisibility(shadowOrigin, guideDir, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, WATER_IOR, vec3(1.0), shadowStartsInWater, false);
                   if (shadow.visible) {
                      vec3 brdf = evalBRDF(N, V, guideDir, diffuseAlbedo, roughness, metallic, F0, F82tint);
                      float pdfBRDF_at = specularProb * pdfSpecGuide
@@ -707,7 +711,7 @@ void main() {
                #ifdef GLASS_CAUSTIC_DISPERSION
                spectralWeight = causticSpectralSample(glassChannelIOR, waterChannelIOR);
                #endif
-               SunVisibility caustic = traceSunVisibility(shadowOrigin, causticDir, SHADOW_MAX_DIST, lightDir, causticSunCosThreshold, glassChannelIOR, waterChannelIOR, spectralWeight, shadowStartsInWater);
+               SunVisibility caustic = traceSunVisibility(shadowOrigin, causticDir, SHADOW_MAX_DIST, lightDir, causticSunCosThreshold, glassChannelIOR, waterChannelIOR, spectralWeight, shadowStartsInWater, false);
                float minCausticBend = max(sunHalfAngle, 0.002);
                bool bentPath = dot(caustic.finalDir, causticDir) < cos(minCausticBend);
 
@@ -776,7 +780,7 @@ void main() {
       }
 
       if (frontLit && dot(L_sample, lightDir) >= sunCosThreshold) {
-         SunVisibility shadow = traceSunVisibility(shadowOrigin, L_sample, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, WATER_IOR, vec3(1.0), shadowStartsInWater);
+         SunVisibility shadow = traceSunVisibility(shadowOrigin, L_sample, SHADOW_MAX_DIST, lightDir, sunCosThreshold, referenceGlassIOR, WATER_IOR, vec3(1.0), shadowStartsInWater, false);
          if (shadow.visible) {
             vec3 brdfAtSun = evalBRDF(N, V, L_sample, diffuseAlbedo, roughness, metallic, F0, F82tint);
             float pdfSpecGuide_at = pdfGGXVNDFL(N, V, L_sample, roughness);
@@ -787,6 +791,7 @@ void main() {
                   / max(pdfBRDF_marginal, 1e-8);
          }
       }
+      sunCoveredByMIS = true;
 
       nextDir = L_sample;
       hasFixedDir = true;
