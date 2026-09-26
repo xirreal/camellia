@@ -10,6 +10,7 @@ uniform mat4 gbufferModelViewInverse;
 uniform vec3 sunPosition;
 uniform vec3 shadowLightPosition;
 uniform int frameCounter;
+uniform float rainStrength;
 uniform sampler2D colortex5;
 uniform sampler2D blockAtlas;
 uniform sampler2D normalAtlas;
@@ -24,11 +25,20 @@ uniform int randomSeed;
 #define BVH_WG_SIZE 32
 #define CONTROL_BUFFER_QUALIFIERS restrict
 #include "/lib/bvh/raytrace.glsl"
+#define ATM_CAMERA_POSITION (control.sceneFrozen == 1u ? control.frozenCameraPos.xyz : cameraPosition)
 #include "/lib/atmosphere/atmosphere.glsl"
 #include "/lib/pt/sellmeier.glsl"
 #include "/lib/core/rand.glsl"
+#if CLOUD_MODE != 0
+#include "/lib/atmosphere/clouds.glsl"
+#endif
 #include "/lib/pt/materials.glsl"
 #include "/lib/pt/brdf.glsl"
+
+#if CLOUD_MODE == 2
+// One path per 4x4 tile; frozen scenes visit every full-resolution pixel over sixteen frames.
+const vec2 workGroupsRender = vec2(0.25, 0.25);
+#endif
 
 const int MAX_BOUNCES = 8;
 const float SHADOW_MAX_DIST = 256.0;
@@ -177,6 +187,21 @@ SunVisibility traceSunVisibility(vec3 ro, vec3 rd, float maxDist, vec3 lightDir,
          }
          res.finalDir = dir;
          res.visible = dot(dir, lightDir) >= sunCosThreshold;
+#ifdef CLOUD_SHADOWS
+#if CLOUD_MODE == 2
+         if (res.visible) res.transmittance *= cloudSunTransmittance(pos, dir);
+#elif CLOUD_MODE == 1
+         if (res.visible) {
+            float altitude = length(cloudAirPosition(pos));
+            float fade = smoothstep(0.05, 0.15, dir.y)
+               * (1.0 - clamp((altitude - clouds_cumulus_radius) / clouds_cumulus_thickness, 0.0, 1.0));
+            if (fade > 0.0) {
+               res.transmittance *= mix(1.0, cloudSunTransmittance(pos, dir),
+                  CLOUD_SHADOWS_INTENSITY * fade);
+            }
+         }
+#endif
+#endif
          return res;
       }
 
@@ -275,8 +300,17 @@ vec3 clampCausticContribution(vec3 c) {
 }
 
 void main() {
+#if CLOUD_MODE == 2
+   ivec2 tileOrigin = ivec2(gl_GlobalInvocationID.xy) * 4;
+   ivec2 screenSize = ivec2(viewWidth, viewHeight);
+   if (any(greaterThanEqual(tileOrigin, screenSize))) return;
+   int phase = frameCounter % 16;
+   ivec2 coord = tileOrigin + (control.sceneFrozen == 1u ? ivec2(phase % 4, phase / 4) : ivec2(2));
+   coord = min(coord, screenSize - 1);
+#else
    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
    if (coord.x >= int(viewWidth) || coord.y >= int(viewHeight)) return;
+#endif
 
    initRNG(coord, frameCounter, randomSeed);
 
@@ -298,7 +332,11 @@ void main() {
    #if defined(DOF_ENABLED) && defined(DOF_AUTOFOCUS)
    {
       ivec2 center = ivec2(int(viewWidth) / 2, int(viewHeight) / 2);
+#if CLOUD_MODE == 2
+      if (tileOrigin == (center / 4) * 4) {
+#else
       if (coord == center) {
+#endif
          vec2 centerNDC = vec2(center + 0.5) / vec2(viewWidth, viewHeight) * 2.0 - 1.0;
          vec4 centerClip = vec4(centerNDC, 1.0, 1.0);
          vec4 centerView = projInv * centerClip;
@@ -383,28 +421,11 @@ void main() {
    float sunDiskCos = cos(0.00465);
    vec3 sunDiskRadiance = SUN_ILLUMINANCE / (2.0 * PI * (1.0 - sunDiskCos));
    float referenceGlassIOR = glassReferenceIOR();
+#if CLOUD_MODE != 0
+   initClouds(worldSunDir);
+#endif
 
    TraceResult primaryHit = traceBVH(ro, rd, true);
-
-   if (!primaryHit.hit) {
-      vec3 sky = sampleSky(rd, worldSunDir);
-      if (isDay && dot(rd, worldSunDir) >= sunDiskCos)
-         sky += sunDiskRadiance * atmosphereTransmittance(rd);
-
-      vec4 prev = texture(colortex5, rawUV);
-      float frameCount = prev.a;
-      vec3 accumulated;
-      float newCount;
-      if (control.sceneFrozen != 1u) {
-         accumulated = sky;
-         newCount = 1.0;
-      } else {
-         newCount = frameCount + 1.0;
-         accumulated = mix(prev.rgb, sky, 1.0 / newCount);
-      }
-      imageStore(colorimg5, coord, vec4(accumulated, newCount));
-      return;
-   }
 
    vec3 throughput = vec3(1.0);
    vec3 radiance = vec3(0.0);
@@ -419,6 +440,10 @@ void main() {
    TraceResult cachedHit = primaryHit;
    bool hasCachedHit = true;
    bool sunCoveredByMIS = false;
+#if CLOUD_MODE == 2
+   int cloudBounces = 0;
+   bool skyCoveredByNEE = false;
+#endif
 
    if (isEyeInWater == 1) {
       insideMedium = true;
@@ -445,16 +470,64 @@ void main() {
          bounceHit = traceBVH(origin, bounceDir);
       }
 
+#if CLOUD_MODE != 0
+      CloudResult clouds = traceClouds(origin, bounceDir,
+         bounceHit.hit ? bounceHit.t : -1.0);
+#if CLOUD_MODE == 2
+      if (clouds.collision) {
+         radiance += throughput * clouds.scattering;
+         throughput *= clouds.aerialTransmittance * clouds.transmittance * clouds.albedo;
+         ++cloudBounces;
+         if ((cloudBounces & 3) == 0) {
+            // Periodic independent phase samples include skylight at the bounce cap.
+            vec3 skyDir = sampleCloudPhase(bounceDir);
+            vec3 airPos = cloudAirPosition(clouds.position);
+            if (intersect_sphere(airPos, skyDir, planet_radius).x <= 0.0
+                && !traceBVH(clouds.position, skyDir).hit) {
+               radiance += throughput * sampleSky(skyDir, worldSunDir)
+                  * cloudSunTransmittance(clouds.position, skyDir);
+            }
+            skyCoveredByNEE = true;
+         } else {
+            skyCoveredByNEE = false;
+         }
+         if (cloudBounces >= CLOUDS_PATH_BOUNCES) break;
+         if (cloudBounces > 3) {
+            float survival = clamp(max(throughput.r, max(throughput.g, throughput.b)), 0.05, 0.90);
+            if (rand() >= survival) break;
+            throughput /= survival;
+         }
+         rayOrigin = clouds.position;
+         nextDir = sampleCloudPhase(bounceDir);
+         hasFixedDir = true;
+         hasCachedHit = false;
+         sunCoveredByMIS = true;
+         --bounce; // Volume collisions have their own budget; preserve surface paths.
+         continue;
+      }
+#endif
+      radiance += throughput * clouds.scattering;
+      throughput *= clouds.transmittance;
+#endif
+
       if (!bounceHit.hit) {
          vec3 sky = sampleSky(bounceDir, worldSunDir);
+#if CLOUD_MODE == 2
+         if (skyCoveredByNEE) sky = vec3(0.0);
+#endif
+         if (bounce == 0 && !sunCoveredByMIS && isDay && dot(bounceDir, worldSunDir) >= sunDiskCos)
+            sky += sunDiskRadiance * atmosphereTransmittance(bounceDir);
          #ifdef SUN_REFLECTIONS
-         if (!sunCoveredByMIS && isDay && dot(bounceDir, worldSunDir) >= sunDiskCos)
+         if (bounce > 0 && !sunCoveredByMIS && isDay && dot(bounceDir, worldSunDir) >= sunDiskCos)
             sky += sunDiskRadiance * atmosphereTransmittance(bounceDir);
          #endif
          radiance += throughput * sky;
          break;
       }
       sunCoveredByMIS = false;
+#if CLOUD_MODE == 2
+      skyCoveredByNEE = false;
+#endif
 
       vec4 texColor = sampleHitTexture(bounceHit);
       vec3 bounceAlbedo = sampleHitAlbedo(bounceHit, origin, bounceDir, texColor);
@@ -812,7 +885,7 @@ void main() {
    vec3 accumulated;
    float newCount;
 
-   if (control.sceneFrozen != 1u) {
+   if (control.sceneFrozen != 1u || any(isnan(prev.rgb)) || any(isinf(prev.rgb))) {
       accumulated = radiance;
       newCount = 1.0;
    } else {
@@ -820,5 +893,17 @@ void main() {
       accumulated = mix(prev.rgb, radiance, 1.0 / newCount);
    }
 
+#if CLOUD_MODE == 2
+   for (int y = 0; y < 4; ++y) {
+      for (int x = 0; x < 4; ++x) {
+         ivec2 dst = tileOrigin + ivec2(x, y);
+         if (any(greaterThanEqual(dst, screenSize))) continue;
+         vec4 value = control.sceneFrozen == 1u && any(notEqual(dst, coord))
+            ? texelFetch(colortex5, dst, 0) : vec4(accumulated, newCount);
+         imageStore(colorimg5, dst, value);
+      }
+   }
+#else
    imageStore(colorimg5, coord, vec4(accumulated, newCount));
+#endif
 }

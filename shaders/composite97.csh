@@ -6,6 +6,7 @@
 #define QUAD_COUNT_BUFFER_QUALIFIERS restrict readonly
 #include "/lib/buffers/quad-count.glsl"
 #include "/lib/buffers/quad-geometry.glsl"
+#include "/lib/buffers/quad-attributes.glsl"
 #include "/lib/bvh/hploc.glsl"
 
 const ivec3 workGroups = ivec3(int((MAX_QUAD_COUNT + 63) / 64), 1, 1);
@@ -48,8 +49,9 @@ void main() {
       atomicAdd(control.quadErrCoplanar, 1u);
    }
 
+   bool triangle = (quadAttributes[gID].materialTexture & 0x80000000u) != 0u;
    if (triangleAreaSq(p0, p1, p2) < VALIDATION_DEGEN_AREA_THRESHOLD ||
-       triangleAreaSq(p0, p2, p3) < VALIDATION_DEGEN_AREA_THRESHOLD) {
+       (!triangle && triangleAreaSq(p0, p2, p3) < VALIDATION_DEGEN_AREA_THRESHOLD)) {
       atomicAdd(control.quadErrDegenerate, 1u);
    }
 

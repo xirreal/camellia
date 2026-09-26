@@ -27,6 +27,17 @@ const int colortex11Format = RGBA32F;
 */
 const bool colortex5Clear = false;
 
+#ifdef AMD_PRIMITIVE_CAPTURE
+#include "/lib/scene/textures-copy.glsl"
+uniform sampler2D gtexture;
+uniform sampler2D normals;
+uniform sampler2D specular;
+flat in uvec4 vTextureCopy;
+#endif
+
 void main() {
+   #ifdef AMD_PRIMITIVE_CAPTURE
+   copyEntityTexture(vTextureCopy, ivec2(shadowMapResolution), gtexture, normals, specular);
+   #endif
    discard;
 }

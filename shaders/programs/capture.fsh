@@ -9,6 +9,9 @@ flat in uvec4 gTextureCopy;
 
 uniform sampler2D gtexture;
 uniform float alphaTestRef;
+#ifdef GBUFFERS_PRIMITIVE_CAPTURE
+uniform int renderStage;
+#endif
 
 #if defined(GBUFFERS_LABPBR_ATLAS)
 #define GBUFFERS_HAS_LABPBR
@@ -82,6 +85,9 @@ void main() {
    vec4 baseColor = texture(gtexture, vTexCoord) * vec4(vColor.rgb, 1.0);
 
    #ifdef GBUFFERS_ALPHA_TEST
+   #ifdef GBUFFERS_PRIMITIVE_CAPTURE
+   if (renderStage != MC_RENDER_STAGE_TERRAIN_TRANSLUCENT)
+   #endif
    if (vBlockID == 4u ? baseColor.a == 0.0 : baseColor.a < alphaTestRef) discard;
    #endif
 

@@ -9,6 +9,15 @@ uniform vec3 sunPosition;
 uniform vec3 cameraPosition;
 
 uniform int frameCounter;
+uniform float rainStrength;
+uniform float wetness;
+uniform int worldDay;
+uniform float photonWorldAge;
+uniform float photonBiomeTemperature;
+uniform float photonBiomeHumidity;
+uniform float photonBiomeSnow;
+uniform float photonBiomeSandstorm;
+uniform float photonLightning;
 
 #define QUAD_WRITE
 #include "/lib/core/storage.glsl"
@@ -52,9 +61,11 @@ void main() {
          if (control.sceneFrozen == 0u) {
             control.frozenProjInv = gbufferProjectionInverse;
             control.frozenModelViewInv = gbufferModelViewInverse;
-            control.frozenLightPos = vec4(shadowLightPosition, 0.0);
+            control.frozenLightPos = vec4(shadowLightPosition, rainStrength);
             control.frozenSunPos = vec4(sunPosition, 0.0);
             control.frozenCameraPos = vec4(cameraPosition, 0.0);
+            control.frozenCloudWeather = vec4(photonWorldAge, wetness, photonBiomeTemperature, photonBiomeHumidity);
+            control.frozenCloudSky = vec4(float(worldDay), photonLightning, photonBiomeSnow, photonBiomeSandstorm);
          }
          control.sceneFrozen = 1u;
 
@@ -118,7 +129,7 @@ void main() {
       control.quadSubgroupAllocator = 0u;
       control.quadSubgroupSlots = 0u;
       #ifdef ENABLE_SUBGROUP_VALIDATION
-      control.captureDebugVersion = 1u;
+      control.captureDebugVersion = 2u;
       control.captureDebugFrame = uint(frameCounter);
       control.captureComputeSize = gl_SubgroupSize;
       control.captureDebugPaths = CAPTURE_DEBUG_PATHS;

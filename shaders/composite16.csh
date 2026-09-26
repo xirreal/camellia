@@ -37,7 +37,7 @@ uint hplocSubgroupSize() {
 }
 
 uint hplocFirstBallotBit(uvec4 mask) {
-#ifdef MC_GL_VENDOR_AMD
+#if defined(MC_GL_VENDOR_AMD) || defined(MC_GL_VENDOR_ATI) || defined(MC_GL_RENDERER_RADEON)
    if (mask.x != 0u) return uint(findLSB(mask.x));
    if (mask.y != 0u) return 32u + uint(findLSB(mask.y));
    return 0u;
@@ -268,7 +268,7 @@ void main() {
       bool merging = any(notEqual(mergeMask, uvec4(0u)));
       if (merging) memoryBarrierBuffer();
 
-#ifdef MC_GL_VENDOR_AMD
+#if defined(MC_GL_VENDOR_AMD) || defined(MC_GL_VENDOR_ATI) || defined(MC_GL_RENDERER_RADEON)
       uint waveMask = mergeMask.x;
 
       for (uint mergeLane = uint(bitCount(waveMask)); mergeLane > 0u; --mergeLane) {

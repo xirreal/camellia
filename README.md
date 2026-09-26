@@ -39,6 +39,8 @@ It may also straight up not work on AMD. I don't have an AMD card to test it wit
 
 ## License
 
+Special thanks to sixthsurge for allowing me to use their clouds in my shader! Check out [Photon](https://github.com/sixthsurge/photon) for a surprisingly fast and stunning realtime shader.
+
 Camellia's original work is shared under the source-available license in [`LICENSE`](LICENSE); it is not an open-source license. Third-party code and research remain under their own terms. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`licenses/`](licenses/).
 
 I want people to learn from Camellia (especially what is wrong with it) so the license allows you to read and modify the source code for personal use. If you want to publish a derivative, you must contact me for permission. See the license for details.

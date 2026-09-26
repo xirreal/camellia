@@ -86,12 +86,14 @@ layout(std430, binding = 1) CONTROL_BUFFER_QUALIFIERS buffer ControlBuffer {
    uint quadSubgroupConsecutive;
    uint quadSubgroupAllocator;
    uint quadSubgroupSlots;
+   vec4 frozenCloudWeather; // 352: world age, wetness, biome temperature/humidity
+   vec4 frozenCloudSky; // 368: world day, lightning, snow/sandstorm weights
 #ifdef ENABLE_SUBGROUP_VALIDATION
-   uint captureDebugVersion; // 352
+   uint captureDebugVersion; // 384
    uint captureDebugFrame;
    uint captureComputeSize;
    uint captureDebugPaths;
-   CaptureSubgroupDebug captureSubgroups[]; // 368; 10 * 192 bytes
+   CaptureSubgroupDebug captureSubgroups[]; // 400; 10 * 192 bytes
 #endif
 } control;
 

@@ -92,6 +92,10 @@ uint captureEntityTexture(uint textureId, sampler2D albedo, ivec2 viewport, out 
    uint id = ENTITY_TEXTURE_FALLBACK;
    uint baseOffset = INVALID_ID;
    bool copyAlbedo = false;
+   #ifdef QUAD_WRITE_RECORDS_ONLY
+   // A geometry invocation owns an entire triangle and emits its own copy.
+   bool completeQuad = true;
+   #else
    uvec4 activeMask = subgroupBallot(true);
    uint lane = gl_SubgroupInvocationID;
    uint firstLane = lane & ~3u;
@@ -104,6 +108,7 @@ uint captureEntityTexture(uint textureId, sampler2D albedo, ivec2 viewport, out 
       completeQuad = completeQuad && subgroupBallotBitExtract(activeMask, quadLane) &&
          subgroupShuffle(uint(gl_VertexID), quadLane) == firstVertex + i;
    }
+   #endif
    ivec2 copyViewport = entityCopyViewport(viewport);
    uint maxCopyTexels = completeQuad ? uint(copyViewport.x * copyViewport.y) * ENTITY_COPY_MAX_STEPS : 0u;
    if (subgroupElect()) id = textureMapInsert(textureId, albedo, maxCopyTexels, size, baseOffset, copyAlbedo);
@@ -112,9 +117,13 @@ uint captureEntityTexture(uint textureId, sampler2D albedo, ivec2 viewport, out 
    copyAlbedo = subgroupBroadcastFirst(copyAlbedo);
    if (baseOffset != INVALID_ID && completeQuad) {
       size = subgroupBroadcastFirst(size);
+      #ifdef QUAD_WRITE_RECORDS_ONLY
+      if (subgroupElect()) copyJob = uvec4(baseOffset, uvec2(size), copyAlbedo ? 1u : 2u);
+      #else
       copyJob = uvec4(baseOffset, uvec2(size), copyAlbedo ? 1u : 2u);
       uint corner = lane - firstLane;
       copyPosition = vec4(corner == 1u ? 3.0 : -1.0, corner >= 2u ? 3.0 : -1.0, 0.0, 1.0);
+      #endif
    }
    return id;
 #else

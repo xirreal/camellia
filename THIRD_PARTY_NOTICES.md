@@ -52,3 +52,13 @@ Engine Sky Atmosphere](https://github.com/sebh/UnrealEngineSkyAtmosphere),
 Copyright (c) 2020 Epic Games, Inc., under the MIT license.
 
 The applicable license notices are in [licenses/Atmosphere.txt](licenses/Atmosphere.txt).
+
+## Photon clouds
+
+Copyright © 2021-2025 Benjamin Stott (SixthSurge).
+[Source](https://github.com/sixthsurge/photon), revision
+`15458c0937f8647c37eb6a501bef5eb3bf3da31b`.
+[Photon Shaders License Agreement](licenses/Photon.txt).
+
+sixthsurge granted explicit permission to port the clouds. His
+copyright and Photon license remain applicable. Derived works will need to negotiate their own license with him if they are to be redistributed.

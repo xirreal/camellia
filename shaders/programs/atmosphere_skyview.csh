@@ -1,3 +1,7 @@
+#include "/lib/core/storage.glsl"
+#define CONTROL_BUFFER_QUALIFIERS restrict readonly
+#include "/lib/buffers/control.glsl"
+#define ATM_CAMERA_POSITION (control.sceneFrozen == 1u ? control.frozenCameraPos.xyz : cameraPosition)
 #include "/lib/atmosphere/params.glsl"
 #include "/lib/atmosphere/density.glsl"
 #include "/lib/atmosphere/sampling.glsl"
@@ -77,9 +81,10 @@ void main() {
    if (pixel.x >= res.x || pixel.y >= res.y) return;
 
    // Convert Iris view-space sun/moon positions to world (Y-up) directions.
-   mat3 mvInv = mat3(gbufferModelViewInverse);
-   vec3 sun_direction = normalize(mvInv * vec3(0.01 * sunPosition));
-   vec3 moon_direction = normalize(mvInv * vec3(0.01 * moonPosition));
+   bool frozen = control.sceneFrozen == 1u;
+   mat3 mvInv = mat3(frozen ? control.frozenModelViewInv : gbufferModelViewInverse);
+   vec3 sun_direction = normalize(mvInv * (frozen ? control.frozenSunPos.xyz : sunPosition));
+   vec3 moon_direction = frozen ? -sun_direction : normalize(mvInv * moonPosition);
 
    float u = float(pixel.x) / float(res.x);
    float v = float(pixel.y) / float(res.y);

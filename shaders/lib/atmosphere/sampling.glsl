@@ -133,7 +133,7 @@ vec3 sampleSkyViewLUT(sampler2D lut, vec3 rayDir, vec3 sunDir) {
    float altitudeAngle = horizonAngle - acos(dot(rayDir, up));
 
    float azimuthAngle;
-   if (abs(altitudeAngle) > (0.5 * PI - 0.0001)) {
+   if (abs(altitudeAngle) > (0.5 * PI - 0.0001) || abs(dot(rayDir, up)) > 0.9999) {
       azimuthAngle = 0.0;
    } else {
       vec3 right = cross(sunDir, up);

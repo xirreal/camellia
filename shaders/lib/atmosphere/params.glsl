@@ -9,7 +9,10 @@ const float ATM_GROUND_RADIUS = 6360e3;
 const float ATM_TOP_RADIUS = 6460e3;
 
 uniform vec3 cameraPosition;
-#define ATM_OBSERVER_POS vec3(0.0, ATM_GROUND_RADIUS + cameraPosition.y + 500.0, 0.0)
+#ifndef ATM_CAMERA_POSITION
+#define ATM_CAMERA_POSITION cameraPosition
+#endif
+#define ATM_OBSERVER_POS vec3(0.0, ATM_GROUND_RADIUS + ATM_CAMERA_POSITION.y + 500.0, 0.0)
 
 const vec3 SUN_ILLUMINANCE = vec3(20.0);
 const vec3 MOON_ILLUMINANCE = vec3(0.1);

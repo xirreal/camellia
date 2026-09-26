@@ -1,5 +1,8 @@
+#if defined(MC_GL_VENDOR_AMD) || defined(MC_GL_VENDOR_ATI) || defined(MC_GL_RENDERER_RADEON)
+#version 460 compatibility
+#include "/programs/shadow-primitive.vsh"
+#else
 #version 460
-
 
 in vec2 mc_Entity;
 in vec4 at_midBlock;
@@ -22,3 +25,4 @@ void main() {
    vColor = gl_Color.rgb;
    vBlockId = uint(mc_Entity.x);
 }
+#endif

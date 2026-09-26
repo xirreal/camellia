@@ -1,6 +1,11 @@
 #ifndef SETTINGS_INCLUDE_GUARD
 #define SETTINGS_INCLUDE_GUARD
 
+// AMD vertex invocations need not contain complete, ordered Minecraft quads.
+#if defined(MC_GL_VENDOR_AMD) || defined(MC_GL_VENDOR_ATI) || defined(MC_GL_RENDERER_RADEON)
+#define AMD_PRIMITIVE_CAPTURE 1
+#endif
+
 // mode 1 = Reference PT, mode 2 = BVH debug, mode 3 = nothing, mode 4 = Simple RT
 #define MODE 1 //[1 2 3 4]
 
@@ -10,6 +15,10 @@
 
 // Stack storage: 0 = shared memory, 1 = image, 2 = invocation-local array
 #define BVH_STACK_MODE 0 //[0 1 2]
+
+// Photon-shaped clouds: 0 = off, 1 = ray-marched, 2 = sampled volume paths.
+#define CLOUD_MODE 1 //[0 1 2]
+#include "/lib/photon/settings.glsl"
 
 #define DOF_ENABLED
 #define DOF_AUTOFOCUS

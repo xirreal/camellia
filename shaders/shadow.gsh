@@ -1,5 +1,8 @@
 #version 460 compatibility
 
+#if defined(MC_GL_VENDOR_AMD) || defined(MC_GL_VENDOR_ATI) || defined(MC_GL_RENDERER_RADEON)
+#include "/programs/shadow-primitive.gsh"
+#else
 layout(triangles) in;
 layout(points, max_vertices = 0) out;
 
@@ -55,3 +58,4 @@ void main() {
    );
 
 }
+#endif
